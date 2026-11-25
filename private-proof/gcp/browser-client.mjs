@@ -1,3 +1,5 @@
+import { readCloudLink, saveCloudLink } from './browser-link.mjs';
+export { readCloudLink };
 import { createGcpPrivateClient } from './client-plan.mjs';
 
 const error = () => new Error('GCP_PRIVATE_PROVING_FAILED');
@@ -5,7 +7,7 @@ const exact = (value, keys) => value !== null && typeof value === 'object' && !A
   Reflect.ownKeys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 
 /** Only the pinned offscreen runner constructs this module, never page messages. */
-export function createGcpPrivateModule({ projectId, policy, workerUrl, onProgress }) {
+export function createGcpPrivateModule({ projectId, policy, workerUrl, onProgress, fastSource, linkSecret }) {
   let url;
   try {
     const location = new URL(globalThis.location.href);
@@ -56,11 +58,12 @@ export function createGcpPrivateModule({ projectId, policy, workerUrl, onProgres
       catch { terminate(); }
     });
   };
-  const local = createGcpPrivateClient({ projectId, policy, proveCircuit });
+  const local = createGcpPrivateClient({ projectId, policy, proveCircuit, fastSource, linkSecret, saveLink: (binding, secret) => saveCloudLink('gcp', binding, secret) });
   // The factory argument must not remain captured after local module construction.
   projectId = undefined;
-  const clear = () => { closed = true; controller?.abort(); terminate(); local.clear(); };
+  const clear = () => { linkSecret?.fill(0); closed = true; controller?.abort(); terminate(); local.clear(); };
   return {
+    fastCheck: !!fastSource,
     getRevealPlan: (...args) => { if (closed) throw error(); return local.getRevealPlan(...args); },
     identityEmail: (...args) => { if (closed) throw error(); return local.identityEmail(...args); },
     clear,

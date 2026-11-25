@@ -30,14 +30,17 @@ export function authenticatedTranscript(receipt, expected) {
 }
 
 /** Provider-neutral range checks only. The caller MUST authenticate the native
- * receipt and bind its host/session/attempt before calling; this authenticates no source. */
-export function authenticatedTranscriptRanges(receipt) {
+ * receipt and bind its host/session/attempt before calling; this authenticates no source.
+ * By default every byte is revealed or hash-committed. The options may raise the size caps and allow unauthenticated gaps
+ * in the listed directions; those directions also return their revealed ranges (`publicRanges`), and a gap is any
+ * byte in neither list. */
+export function authenticatedTranscriptRanges(receipt, { maxLength = 16384, maxRanges = 256, gaps = [] } = {}) {
   if (!record(receipt) || receipt.failure !== undefined || !exactKeys(receipt.config, ['sent', 'recv']) ||
       !Array.isArray(receipt.results) || !record(receipt.transcript)) fail();
 
   const resultCount = ['sent', 'recv'].reduce((count, direction) => {
     const ranges = receipt.config[direction];
-    if (!Array.isArray(ranges) || !ranges.length || ranges.length > 256) fail();
+    if (!Array.isArray(ranges) || !ranges.length || ranges.length > maxRanges) fail();
     return count + ranges.length;
   }, 0);
   if (receipt.results.length !== resultCount || receipt.results.some(result =>
@@ -48,13 +51,13 @@ export function authenticatedTranscriptRanges(receipt) {
   for (const direction of ['sent', 'recv']) {
     const type = direction.toUpperCase();
     const length = receipt.transcript[`${direction}_length`];
-    if (!Number.isSafeInteger(length) || length < 1 || length > 16384) fail();
+    if (!Number.isSafeInteger(length) || length < 1 || length > maxLength) fail();
     const bytes = new Uint8Array(length);
     const privateRanges = [];
     const results = receipt.results.filter(result => result.type === type);
     const ranges = receipt.config[direction];
     if (results.length !== ranges.length) fail();
-    const ordered = [];
+    const ordered = [], publicRanges = [];
     for (let index = 0; index < ranges.length; index++) {
       const range = ranges[index], result = results[index];
       if (!exactKeys(range, ['start', 'end', 'handler']) || !Number.isSafeInteger(range.start) ||
@@ -73,22 +76,25 @@ export function authenticatedTranscriptRanges(receipt) {
         // Only public ASCII is supported; reject lossy native UTF-8 conversions.
         if (result.value.length !== range.end - range.start || /[^\x09\x0a\x0d\x20-\x7e]/.test(result.value)) fail();
         for (let offset = 0; offset < result.value.length; offset++) bytes[range.start + offset] = result.value.charCodeAt(offset);
+        publicRanges.push({ start: range.start, end: range.end });
       }
       ordered.push({ start: range.start, end: range.end });
     }
     ordered.sort((left, right) => left.start - right.start);
+    const gapped = gaps.includes(direction);
     let cursor = 0;
     for (const range of ordered) {
-      if (range.start !== cursor) fail();
+      if (gapped ? range.start < cursor : range.start !== cursor) fail();
       cursor = range.end;
     }
-    if (cursor !== length) fail();
+    if (!gapped && cursor !== length) fail();
     // Extra authenticated disclosures must not enter storage outside this plan.
     const native = receipt.transcript[direction];
     if (typeof native !== 'string' || native.length !== length) fail();
     for (let offset = 0; offset < length; offset++) if (native.charCodeAt(offset) !== bytes[offset]) fail();
     privateRanges.sort((left, right) => left.start - right.start);
-    output[direction] = { bytes, privateRanges };
+    output[direction] = gapped ? { bytes, privateRanges, publicRanges: publicRanges.sort((left, right) => left.start - right.start) }
+      : { bytes, privateRanges };
   }
   return output;
 }

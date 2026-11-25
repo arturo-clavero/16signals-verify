@@ -4,3 +4,4 @@ type = "bin"
 
 [dependencies]
 gcp_private_json = { path = "../../../gcp/circuits/lib" }
+aws_private_json = { path = "../lib" }

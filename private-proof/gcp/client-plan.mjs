@@ -247,11 +247,13 @@ function erase(value) {
 }
 
 /** Pinned offscreen module only. `proveCircuit` must terminate its worker on abort. */
-export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto = globalThis.crypto }) {
+export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto = globalThis.crypto, fastSource, linkSecret, saveLink }) {
   policy = Object.freeze(validatePolicy(policy));
   if (typeof proveCircuit !== 'function' || !crypto?.subtle || !crypto?.getRandomValues) fail();
   // Validate local project without retaining a fabricated identity.
   localBatchBody('groups:0', policy, projectId, 'validation@example.invalid');
+  if (fastSource && (!(linkSecret instanceof Uint8Array) || linkSecret.length !== 32 ||
+      !/^[0-9a-f]{64}$/.test(fastSource.scopeHash) || !/^[A-Za-z0-9_-]{43}$/.test(fastSource.nonceMac))) fail();
   let email, consumed = false;
   const options = () => ({ projectId, policy, email });
   const clear = () => { consumed = true; email = undefined; projectId = undefined; };
@@ -266,13 +268,13 @@ export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto
     },
     async prove(witnesses, signal) {
       if (consumed) fail(); consumed = true;
-      const salt = new Uint8Array(32); crypto.getRandomValues(salt);
+      const salt = fastSource ? new Uint8Array(linkSecret) : crypto.getRandomValues(new Uint8Array(32));
       let common;
       try {
-        if (!signal || signal.aborted || !Array.isArray(witnesses) || witnesses.length !== 6) fail();
+        if (!signal || signal.aborted || !Array.isArray(witnesses) || witnesses.length !== (fastSource ? 1 : 6)) fail();
         const nonce = witnesses[0].nonceMac, proofId = witnesses[0].proofId;
         const ids = new Set(), prepared = [];
-        for (let index = 0; index < STEPS.length; index++) {
+        for (let index = 0; index < witnesses.length; index++) {
           const witness = witnesses[index];
           if (signal.aborted || witness.step !== STEPS[index] || witness.nonceMac !== nonce || witness.proofId !== proofId ||
               !witness.sessionId || ids.has(witness.sessionId) || witness.serverName !== (index ? 'logging.clients6.google.com' : 'accounts.google.com')) fail();
@@ -287,7 +289,7 @@ export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto
           prepared.push(item);
         }
         const selected = prepared[0].selected;
-        common = { nonce: Array.from(encoder.encode(nonce)), salt: Array.from(salt), account: selected.account,
+        common = { nonce: Array.from(encoder.encode(fastSource?.nonceMac ?? nonce)), salt: Array.from(salt), account: selected.account,
           project: pad(encoder.encode(projectId), 30), project_len: projectId.length,
           email: pad(encoder.encode(selected.email), 254), email_len: selected.email.length,
           id: pad(encoder.encode(selected.id), 64), id_len: selected.id.length };
@@ -295,8 +297,10 @@ export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto
           common.project_len, ...common.project, common.email_len, ...common.email, common.id_len, ...common.id]);
         try { common.scope_hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', encoded))); }
         finally { encoded.fill(0); }
+        // shortcut: account-order changes need a full check; add a separate refresh circuit if this becomes common.
+        if (fastSource && hex(common.scope_hash) !== fastSource.scopeHash) fail();
         const inspections = prepared.map(item => item.inspection);
-        const expectations = assembleBundleExpectations(inspections, common.scope_hash, policy, nonce);
+        const expectations = assembleBundleExpectations(inspections, common.scope_hash, policy, fastSource?.nonceMac ?? nonce, !!fastSource);
         if (!expectations.length || expectations.length > 128) fail();
         const proofs = [];
         for (const expected of expectations) {
@@ -310,9 +314,10 @@ export function createGcpPrivateClient({ projectId, policy, proveCircuit, crypto
             proofs.push(entry);
           } finally { erase(inputs); }
         }
+        if (!fastSource && saveLink) await saveLink(hex(common.scope_hash), salt);
         return { proofs };
       } catch { fail(); }
-      finally { salt.fill(0); erase(common); clear(); }
+      finally { salt.fill(0); linkSecret?.fill(0); erase(common); clear(); }
     },
   };
 }

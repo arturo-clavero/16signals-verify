@@ -40,7 +40,7 @@ function fields(entry) {
 /** Bounded wire preflight for an endpoint before forwarding to the proof worker. */
 export function validateBundleShape(bundle) {
   if (!exactKeys(bundle, ['kind', 'version', 'proofs', 'sessionIds']) || bundle.kind !== 'GCP_PRIVATE_RESULT' || bundle.version !== 1 ||
-      !Array.isArray(bundle.sessionIds) || bundle.sessionIds.length !== STEPS.length ||
+      !Array.isArray(bundle.sessionIds) || ![1, STEPS.length].includes(bundle.sessionIds.length) ||
       bundle.sessionIds.some(id => typeof id !== 'string' || !UUID.test(id)) ||
       !Array.isArray(bundle.proofs) || !bundle.proofs.length || bundle.proofs.length > 128) fail();
   let length = JSON.stringify({ kind: bundle.kind, version: bundle.version, proofs: [], sessionIds: bundle.sessionIds }).length;
@@ -84,12 +84,12 @@ function paddedSlots(slots, count, limit) {
  * session order and each session's native SENT/RECV offset order.
  * Diagnostic IDs and slots are local only and never added to completion wire.
  */
-export function assembleBundleExpectations(inspections, scopeHash, policy, nonceMac) {
+export function assembleBundleExpectations(inspections, scopeHash, policy, nonceMac, identityOnly = false) {
   const checkedPolicy = validatePolicy(policy), scope = bytes32(scopeHash);
-  if (!/^[A-Za-z0-9_-]{43}$/.test(nonceMac ?? '') || !Array.isArray(inspections) || inspections.length !== STEPS.length) fail();
+  if (!/^[A-Za-z0-9_-]{43}$/.test(nonceMac ?? '') || !Array.isArray(inspections) || inspections.length !== (identityOnly ? 1 : STEPS.length)) fail();
   const nonce = Array.from(nonceMac, character => character.charCodeAt(0));
   const expected = [], coverage = [];
-  for (let index = 0; index < STEPS.length; index++) {
+  for (let index = 0; index < inspections.length; index++) {
     const inspection = inspections[index];
     if (!record(inspection) || inspection.step !== STEPS[index] || inspection.catalogDigest !== CATALOG_DIGEST ||
         !Array.isArray(inspection.obligations) || inspection.obligations.length > 512) fail();
@@ -206,10 +206,10 @@ export function assembleBundleExpectations(inspections, scopeHash, policy, nonce
  * entry. Runtime must use application-pinned artifacts, never request artifacts
  * or verification keys. Only the completion bundle is untrusted request data.
  */
-export async function verifyBundle({ sessions, policy, bundle, runtime }) {
+export async function verifyBundle({ sessions, policy, bundle, runtime, fastSource }) {
   try {
     const checkedPolicy = validatePolicy(policy);
-    if (!Array.isArray(sessions) || sessions.length !== STEPS.length || !runtime || typeof runtime.verify !== 'function') fail();
+    if (!Array.isArray(sessions) || sessions.length !== (fastSource ? 1 : STEPS.length) || !runtime || typeof runtime.verify !== 'function') fail();
     validateBundleShape(bundle);
     const seenSessions = new Set(), native = new Map(), directions = [], first = sessions[0]?.expected;
     for (let index = 0; index < sessions.length; index++) {
@@ -257,7 +257,8 @@ export async function verifyBundle({ sessions, policy, bundle, runtime }) {
       }
     }
     const inspections = directions.map((value, index) => inspectGcpSession(value, sessions[index].expected, checkedPolicy, claims[index]));
-    const expectations = assembleBundleExpectations(inspections, scopeHash, checkedPolicy, first.nonceMac);
+    if (fastSource && (scopeHash !== fastSource.scopeHash || !/^[A-Za-z0-9_-]{43}$/.test(fastSource.nonceMac))) fail();
+    const expectations = assembleBundleExpectations(inspections, scopeHash, checkedPolicy, fastSource?.nonceMac ?? first.nonceMac, !!fastSource);
     if (expectations.length !== bundle.proofs.length) fail();
     for (let index = 0; index < expectations.length; index++) {
       const entry = bundle.proofs[index], expectation = expectations[index];
@@ -266,4 +267,21 @@ export async function verifyBundle({ sessions, policy, bundle, runtime }) {
     return { catalogDigest: CATALOG_DIGEST, policy: checkedPolicy,
       groups: inspections.slice(1).flatMap(inspection => inspection.groups.map(group => ({ id: group.id, status: group.status }))) };
   } catch { throw new Error('GCP_PRIVATE_BUNDLE_INVALID'); }
+}
+
+/** Public reference only; validity still requires re-verifying the entire source recording. */
+export function gcpFastSource(recording) {
+  validateBundleShape(recording.bundle);
+  const proof = recording.bundle.proofs[0];
+  if (recording.bundle.sessionIds.length !== STEPS.length || proof.circuitId !== 'identity-scope-v1') fail();
+  const values = fields(proof), nonceMac = String.fromCharCode(...values.slice(0, 43).map(Number));
+  if (!/^[A-Za-z0-9_-]{43}$/.test(nonceMac)) fail();
+  return { scopeHash: fieldHash(values.slice(43, 75)), nonceMac };
+}
+
+export async function verifyFastBundle({ sessions, policy, bundle, runtime, recording }) {
+  if (policy?.windowDays !== recording?.policy?.windowDays) fail();
+  const result = await verifyBundle({ ...recording, runtime });
+  await verifyBundle({ sessions, policy, bundle, runtime, fastSource: gcpFastSource(recording) });
+  return result;
 }

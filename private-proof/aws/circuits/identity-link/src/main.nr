@@ -1,4 +1,4 @@
-mod identity;
+use aws_private_json::identity;
 use gcp_private_json::commitment;
 
 fn quoted_match<let N: u32, let M: u32>(value: [u8; N], length: u32, quoted: [u8; M], quoted_length: u32) {

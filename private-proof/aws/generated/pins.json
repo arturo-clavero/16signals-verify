@@ -51,6 +51,14 @@
       "keySha256": "c91d9ca2b64adc6485ab660e421b7829d1d101b01d531fcfb7d7339c6201b5e0",
       "keyBytes": 3680
     },
+    "aws-identity-refresh-v1": {
+      "file": "aws-identity-refresh-v1-dfb9a36634208932b01e1c1b04b09427b4d96150fb1a1c1d3536480da1e2fcf5.json",
+      "sha256": "dfb9a36634208932b01e1c1b04b09427b4d96150fb1a1c1d3536480da1e2fcf5",
+      "bytes": 46244,
+      "keyFile": "aws-identity-refresh-v1-715c770c294961c29952860b51816f7818415793e7e6599b8eeba4d3b7f6e355.vk",
+      "keySha256": "715c770c294961c29952860b51816f7818415793e7e6599b8eeba4d3b7f6e355",
+      "keyBytes": 3680
+    },
     "aws-identity-link-v1": {
       "file": "aws-identity-link-v1-7ae820a63f707ba05570ac1cb653ec9a487d9c7e07594be1bd64f4ebdb4b7566.json",
       "sha256": "7ae820a63f707ba05570ac1cb653ec9a487d9c7e07594be1bd64f4ebdb4b7566",
@@ -81,6 +89,30 @@
       "bytes": 319337,
       "keyFile": "aws-escaped-atom-small-v1-86ad6eddecac6ec80724a173bfebeeb163ab0a191b5e29b40ab664cec5eb8010.vk",
       "keySha256": "86ad6eddecac6ec80724a173bfebeeb163ab0a191b5e29b40ab664cec5eb8010",
+      "keyBytes": 3680
+    },
+    "aws-user-agent-class-v1": {
+      "file": "aws-user-agent-class-v1-381e1b3a7ae8c628a03b384de908384a12c65a61705069bb9650ef0a75947b68.json",
+      "sha256": "381e1b3a7ae8c628a03b384de908384a12c65a61705069bb9650ef0a75947b68",
+      "bytes": 909061,
+      "keyFile": "aws-user-agent-class-v1-4d717802576848776847a1bb708bc9b7e9958b24027689edca97aea04f4ecaf8.vk",
+      "keySha256": "4d717802576848776847a1bb708bc9b7e9958b24027689edca97aea04f4ecaf8",
+      "keyBytes": 3680
+    },
+    "aws-event-batch-v1": {
+      "file": "aws-event-batch-v1-9a120212dc84e9250e9d7814beeba2baf4f5390ed417dde0777aa8e18b6f27d1.json",
+      "sha256": "9a120212dc84e9250e9d7814beeba2baf4f5390ed417dde0777aa8e18b6f27d1",
+      "bytes": 5363475,
+      "keyFile": "aws-event-batch-v1-04e6a4b4ccc1bdeb0fbf36dbb51474cdb06f193e3a8f86f10186229eb683dc18.vk",
+      "keySha256": "04e6a4b4ccc1bdeb0fbf36dbb51474cdb06f193e3a8f86f10186229eb683dc18",
+      "keyBytes": 3680
+    },
+    "aws-event-batch-wide-v1": {
+      "file": "aws-event-batch-wide-v1-4ada8088ea85d5e4b7a3d98bcdac1d91752b2c9a0d7263121053a14a16530c13.json",
+      "sha256": "4ada8088ea85d5e4b7a3d98bcdac1d91752b2c9a0d7263121053a14a16530c13",
+      "bytes": 5036059,
+      "keyFile": "aws-event-batch-wide-v1-0c87a5512a13e7353a2a1d99be599dac09cc40ccefd48500df42e97645b87334.vk",
+      "keySha256": "0c87a5512a13e7353a2a1d99be599dac09cc40ccefd48500df42e97645b87334",
       "keyBytes": 3680
     }
   }

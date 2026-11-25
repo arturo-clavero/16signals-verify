@@ -16,11 +16,15 @@ export function gcpCredentialScanView(receipt, expected) {
   }
 }
 
-/** directions must come from the provider's authenticated native receipt validator. */
-export function privateCredentialScanView(receipt, directions, multipart) {
+/**
+ * directions must come from the provider's authenticated native receipt validator. A direction listed in `unmasked`
+ * is scanned exactly as revealed (no credential header name is masked), so any revealed credential header fails.
+ */
+export function privateCredentialScanView(receipt, directions, multipart, unmasked = []) {
     const masks = {};
     for (const direction of ['sent', 'recv']) {
       const mask = masks[direction] = new Uint8Array(directions[direction].bytes.length);
+      if (unmasked.includes(direction)) continue;
       const mark = (message, wireIndices) => {
         for (const [index, header] of message.headers.entries()) {
           if (!credentialNames[direction].has(header.name) || header.value.end <= header.value.start) continue;

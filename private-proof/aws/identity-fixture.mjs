@@ -34,7 +34,7 @@ export function identityFixture(options = {}) {
       if (!bytes.length) return;
       const handler = { type: direction.toUpperCase(), part: 'BODY', action: hidden ? { kind: 'HASH', algorithm: 'SHA256' } : { kind: 'REVEAL' } };
       ranges.push({ start: position, end: position + bytes.length, handler });
-      const preimage = hidden ? Buffer.concat([bytes, Buffer.alloc(16, ++salt)]) : undefined;
+      const preimage = hidden ? Buffer.concat([bytes, options.blinderSeed === undefined ? Buffer.alloc(16, ++salt) : createHash('sha256').update(`${options.blinderSeed}:${++salt}`).digest().subarray(0, 16)]) : undefined;
       const value = hidden ? createHash('sha256').update(preimage).digest('hex') : bytes.toString();
       if (hidden) openings.set(value, preimage);
       receipt.results.push({ ...handler, value });
