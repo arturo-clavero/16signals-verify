@@ -3,6 +3,15 @@ import { AWS_SESSION_STEPS, sanitizeAwsPrivateResult, validateAwsAttempt, create
 
 export const AWS_PRIVATE_TIMEOUT_MS = 13 * 60 * 1000;
 
+/** One fixed diagnostic code per AWS run stage for the offscreen console; never a value. */
+export function awsOffscreenStage(code: string): void {
+  try { console.warn(`AWS_OFF_${code}`); } catch { /* Diagnostics must not affect the run. */ }
+}
+const stageCode = (error: unknown) => {
+  const stage = (error as { stage?: unknown } | null)?.stage;
+  return typeof stage === 'string' && /^[A-Z0-9_]{1,80}$/.test(stage) ? stage : 'UNSPECIFIED';
+};
+
 /** Compiled runner policy; page/plugin data cannot select the witness implementation. */
 export class AwsPrivateWitnessRun extends PrivateWitnessRun {
   private deadline: ReturnType<typeof setTimeout>;
@@ -33,12 +42,22 @@ export class AwsPrivateWitnessRun extends PrivateWitnessRun {
     this.deadline = setTimeout(() => this.clear(), Math.min(AWS_PRIVATE_TIMEOUT_MS, attempt.expiresAt - Date.now()));
   }
   async collect(capture: () => Promise<AwsCapture>) {
-    if (this.stopped || this.collection) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+    if (this.stopped || this.collection) { awsOffscreenStage('COLLECT_BUSY'); throw new Error('AWS_PRIVATE_COLLECTION_FAILED'); }
     this.collection = createAwsLocalSession({ attempt: this.attempt, identityOnly: this.fastCheck });
-    const value = await capture();
+    let value: AwsCapture;
+    try { value = await capture(); } catch (error) { awsOffscreenStage('CAPTURE_FAILED'); throw error; }
     try {
-      const requests = await this.collection.prepare(value);
-      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > AWS_SESSION_STEPS.length) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      let requests;
+      try { requests = await this.collection.prepare(value); }
+      catch (error) {
+        awsOffscreenStage(error instanceof Error && error.message === 'AWS_ACTIVITY_ACCESS_REQUIRED' ? 'PREPARE_ACTIVITY_ACCESS_REQUIRED' : `PREPARE_${stageCode(error)}`);
+        throw error;
+      }
+      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > AWS_SESSION_STEPS.length) {
+        awsOffscreenStage(this.stopped ? 'COLLECT_STOPPED' : `COLLECT_COUNT_${requests.length}`);
+        throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      }
+      awsOffscreenStage(`COLLECT_OK_${requests.length}`);
       this.collectionSteps.splice(0, this.collectionSteps.length, ...requests.map((_, index) => ({
         step: AWS_SESSION_STEPS[index], host: index ? 'cloudtrail.us-east-1.amazonaws.com' : 'iam.amazonaws.com',
       })));

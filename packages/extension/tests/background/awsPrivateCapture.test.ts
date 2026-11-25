@@ -145,6 +145,24 @@ describe('AWS isolated content credential fetch', () => {
     expect(d.fetchAws).toHaveBeenCalledWith(message.url, expect.objectContaining({ method: 'POST', credentials: 'include', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { 'x-csrf-token': 'csrf', 'x-16signals-capture': message.marker } }));
     expect(Object.keys(result).sort()).toEqual(['accessKeyId', 'expiration', 'secretAccessKey', 'sessionToken']);
   });
+  it('names the refused check, including a marker-less message from a background of another build', async () => {
+    const { marker: _marker, ...older } = message;
+    for (const [m, s, overrides, code] of [
+      [older, sender, {}, 'SHAPE'], [{ ...message, marker: 'x' }, sender, {}, 'MARKER'], [message, { ...sender, id: 'other' }, {}, 'SENDER'],
+      [message, sender, { top: false }, 'CONTEXT'], [{ ...message, url: message.url + '?x=1' }, sender, {}, 'URL'],
+      [message, sender, { origin: 'https://sentinel.invalid' }, 'ORIGIN'], [{ ...message, csrfToken: '' }, sender, {}, 'CSRF'],
+    ] as const) {
+      await expect(readConsoleCredentials(m, s, { ...deps(), ...overrides })).rejects.toMatchObject({ message: `AWS_REFETCH_REFUSED_${code}` });
+    }
+  });
+  it('logs the re-fetch outcome as a fixed code in the page console', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await readConsoleCredentials(message, sender, deps());
+    await expect(readConsoleCredentials(message, sender, { ...deps(), fetchAws: vi.fn(async () => new Response('{}', { status: 401 })) as unknown as typeof fetch })).rejects.toThrow();
+    await expect(readConsoleCredentials({ ...message, marker: 'x' }, sender, deps())).rejects.toThrow();
+    expect(warn.mock.calls).toEqual([['AWS_CS_REFETCH_OK'], ['AWS_CS_REFETCH_STATUS_401'], ['AWS_CS_REFETCH_REFUSED_MARKER']]);
+    warn.mockRestore();
+  });
   it('rejects with a fixed stage code: HTTP status or an invalid credential body', async () => {
     for (const [response, code] of [[new Response('{}', { status: 403 }), 'AWS_REFETCH_STATUS_403'],
       [new Response(JSON.stringify({ accessKeyId: 'AKIA_PRIVATE' })), 'AWS_REFETCH_INVALID']] as const) {
@@ -161,7 +179,7 @@ describe('AWS isolated content credential fetch', () => {
       [{ ...message, marker: 'marker\r\ninjected: value' }, sender, {}], [{ ...message, marker: undefined }, sender, {}],
     ] as const) {
       const d = { ...deps(), ...overrides };
-      await expect(readConsoleCredentials(m, s, d)).rejects.toMatchObject({ message: 'AWS_REFETCH_REFUSED' });
+      await expect(readConsoleCredentials(m, s, d)).rejects.toMatchObject({ message: expect.stringMatching(/^AWS_REFETCH_REFUSED_[A-Z]+$/) });
       expect(d.fetchAws).not.toHaveBeenCalled();
     }
   });

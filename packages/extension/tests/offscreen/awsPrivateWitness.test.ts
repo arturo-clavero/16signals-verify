@@ -191,3 +191,26 @@ it('Fast collects only IAM and completes exactly one fresh session', async () =>
   await (await prepare(run)).accept();
   expect(await run.finish()).toEqual(result);
 });
+
+it('logs one fixed collection stage code to the offscreen console, never a value', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const cases: Array<[string, () => unknown, () => Promise<unknown>]> = [
+    ['AWS_OFF_PREPARE_CREDENTIALS_EXPIRE_BEFORE_ATTEMPT', () => vi.fn().mockRejectedValue(Object.assign(new Error('AWS_PRIVATE_COLLECTION_FAILED'),
+      { stage: 'CREDENTIALS_EXPIRE_BEFORE_ATTEMPT' })), async () => ({ credentials: { secretAccessKey: 'PRIVATE_SENTINEL' } })],
+    ['AWS_OFF_PREPARE_UNSPECIFIED', () => vi.fn().mockRejectedValue(Object.assign(new Error('x'), { stage: 'PRIVATE SENTINEL value' })),
+      async () => ({ credentials: {} })],
+    ['AWS_OFF_CAPTURE_FAILED', () => vi.fn(), async () => { throw new Error('AWS_PRIVATE_COLLECTION_FAILED'); }],
+    ['AWS_OFF_COLLECT_COUNT_0', () => vi.fn().mockResolvedValue([]), async () => ({ credentials: {} })],
+  ];
+  for (const [code, prepare, capture] of cases) {
+    vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ prepare: prepare(), clear: vi.fn() } as never);
+    warn.mockClear();
+    await expect(create().collect(capture as never)).rejects.toThrow();
+    expect(warn.mock.calls).toEqual([[code]]);
+  }
+  vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ prepare: vi.fn().mockResolvedValue([{}, {}]), clear: vi.fn() } as never);
+  warn.mockClear();
+  await create().collect(async () => ({ credentials: {} }) as never);
+  expect(warn.mock.calls).toEqual([['AWS_OFF_COLLECT_OK_2']]);
+  vi.restoreAllMocks();
+});

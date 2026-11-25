@@ -35,7 +35,7 @@ import { proveSessionData } from './pluginHash';
 import { GcpPrivateWitnessRun, PrivateWitnessRun, clearGcpOpenings } from './gcpPrivateWitness';
 import { gcpPrivateProgress } from './gcpPrivateProgress';
 import type { GcpPrivateProofModule } from './gcpPrivateWitness';
-import { AwsPrivateWitnessRun } from './awsPrivateWitness';
+import { AwsPrivateWitnessRun, awsOffscreenStage } from './awsPrivateWitness';
 import type { AwsCapture } from '../aws-private/browser-client.mjs';
 import type { RevealOutput } from 'tlsn-wasm';
 
@@ -290,6 +290,7 @@ export class SessionManager {
               sessionData,
               mode,
             ).catch(error => {
+              if (privateRun instanceof AwsPrivateWitnessRun) awsOffscreenStage('PROVER_CREATE_FAILED');
               if (privateRun) throw new Error('GCP_PRIVATE_PROOF_FAILED');
               throw error;
             });
@@ -412,6 +413,7 @@ export class SessionManager {
           return response;
         } catch (error) {
           if (privateRun) {
+            if (privateRun instanceof AwsPrivateWitnessRun) awsOffscreenStage('PROVE_FAILED');
             privateRun.clear();
             throw new Error('GCP_PRIVATE_PROOF_FAILED');
           }
@@ -555,7 +557,10 @@ export class SessionManager {
     this.addNavigate(host, execRequestId, sessionData || null);
     if (privateRun instanceof AwsPrivateWitnessRun) host.addCapability('collectAwsPrivate', (captureId: unknown) => {
       const windowId = this.runWindows.get(host);
-      if (!windowId || typeof captureId !== 'string' || !/^[A-Za-z0-9._-]{1,256}$/.test(captureId)) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      if (!windowId || typeof captureId !== 'string' || !/^[A-Za-z0-9._-]{1,256}$/.test(captureId)) {
+        awsOffscreenStage(windowId ? 'COLLECT_INVALID_CAPTURE' : 'COLLECT_NO_WINDOW');
+        throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      }
       return privateRun.collect(async () => await chromeRuntime.sendMessage({ type: 'AWS_PRIVATE_CREDENTIALS',
         requestId: execRequestId, windowId, captureId }) as AwsCapture);
     });
@@ -628,6 +633,7 @@ export class SessionManager {
       }
       return privateRun ? await privateRun.finish() : result;
     } catch (error) {
+      if (privateRun instanceof AwsPrivateWitnessRun) awsOffscreenStage('RUN_FAILED');
       if (privateRun) throw new Error('GCP_PRIVATE_PROOF_FAILED');
       throw error;
     } finally {

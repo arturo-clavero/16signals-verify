@@ -10,7 +10,7 @@ import { runSessionData } from '../../offscreen/pluginHash';
 import { createGcpPrivateModule, readCloudLink } from '../../gcp-private/browser-client.mjs';
 import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
 import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
-import { AwsPrivateWitnessRun } from '../../offscreen/awsPrivateWitness';
+import { AwsPrivateWitnessRun, awsOffscreenStage } from '../../offscreen/awsPrivateWitness';
 
 const OffscreenApp: React.FC = () => {
   useEffect(() => {
@@ -117,7 +117,7 @@ const OffscreenApp: React.FC = () => {
                 },
               });
               }
-            } catch { if (!aws) gcpPrivateDiagnostic('MODULE_FAILED'); privateModule?.clear(); return { success: false, error: privateError }; }
+            } catch { if (aws) awsOffscreenStage('MODULE_FAILED'); else gcpPrivateDiagnostic('MODULE_FAILED'); privateModule?.clear(); return { success: false, error: privateError }; }
             privateRunning = true;
             const heartbeat = setInterval(() => {
               browser.runtime.sendMessage({ type: `${prefix}_HEARTBEAT`, requestId: request.requestId })
@@ -135,7 +135,7 @@ const OffscreenApp: React.FC = () => {
                 const result = await execute(privateModule!);
                 await browser.runtime.sendMessage({ type: `${prefix}_COMPLETE`, requestId: request.requestId, success: true, result });
               } catch {
-                if (!aws) gcpPrivateDiagnostic('EXECUTE_FAILED');
+                if (aws) awsOffscreenStage('EXECUTE_FAILED'); else gcpPrivateDiagnostic('EXECUTE_FAILED');
                 const failure = aws && privateModule instanceof AwsPrivateWitnessRun && privateModule.activityAccessRequired
                   ? 'AWS_ACTIVITY_ACCESS_REQUIRED' : privateError;
                 await browser.runtime.sendMessage({ type: `${prefix}_COMPLETE`, requestId: request.requestId,
