@@ -6,6 +6,7 @@ import { isProductOrigin } from '../../constants/productOrigins';
 import { sanitizePageProgress } from '../../constants/pageProgress';
 import { BUILTIN_PLUGINS } from '../../constants/builtinPlugins';
 import { readConsoleCredentials } from './awsPrivateCredentials';
+import { createBodyRenderer } from './bodyRender';
 import { watchGcpProofProgress } from './gcpProofWatchdog';
 
 // Initialize logger at DEBUG level for content scripts (no IndexedDB access)
@@ -43,6 +44,7 @@ function injectScript() {
 }
 
 let stopGcpProofWatchdog: (() => void) | undefined;
+const whenBody = createBodyRenderer();
 
 function renderPluginUI(json: DomJson, windowId: number) {
   stopGcpProofWatchdog?.();
@@ -302,7 +304,8 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
   }
 
   if (request.type === 'RENDER_PLUGIN_UI') {
-    renderPluginUI(request.json, request.windowId);
+    const { json, windowId } = request;
+    whenBody(() => renderPluginUI(json, windowId));
     return Promise.resolve({ success: true });
   }
 
