@@ -34,12 +34,24 @@ export type BackgroundMessage =
       message: string;
       source: string;
     }
+  // Offscreen → background, auto-approved runs only.
+  | { type: 'PLUGIN_PROGRESS'; requestId: string; progress: unknown }
+  // Offscreen → background, auto-approved runs only (the run's own window to an allowlisted exact URL, configured at build time).
+  | { type: 'PLUGIN_NAVIGATE'; requestId: string; windowId: number; url: string }
+  // Content script → background. Names one of
+  // the extension's built-in plugins (id + fingerprint) and the run's values; no
+  // code. Checked in the background from Chrome's sender (background/autoApproval.ts).
   | {
-      type: 'EXEC_CODE';
-      code: string;
-      requestId: string;
-      sessionData?: Record<string, unknown>;
-      pageOrigin?: string;
+      type: 'RUN_BUILTIN';
+      pluginId: unknown;
+      fingerprint: unknown;
+      verifierUrl: unknown;
+      proxyUrl: unknown;
+      params: unknown;
+      // {<METHOD>: {verifierUrl, proxyUrl}}, one pair per proof in the window.
+      methodUrls: unknown;
+      requestId: unknown;
+      sessionData: unknown;
     }
   | { type: 'CLOSE_WINDOW'; windowId: number }
   | {
@@ -66,6 +78,8 @@ export type ContentMessage =
       message: string;
       source: string;
     }
+  // Background → the run's own tab; posted to the page on allowed origins only.
+  | { type: 'PLUGIN_PROGRESS'; requestId: string; progress: unknown }
   | { type: 'GET_PAGE_INFO' }
   | { type: 'RENDER_PLUGIN_UI'; json: DomJson; windowId: number }
   | { type: 'RELAY_OUT'; requestId: string; data: string };
@@ -73,13 +87,21 @@ export type ContentMessage =
 /** Messages handled by the Offscreen document */
 export type OffscreenMessage =
   | { type: 'PROCESS_DATA' }
+  // Background → offscreen; the code is read from the
+  // package in the offscreen document (offscreen/builtinRun.ts).
   | {
-      type: 'EXEC_CODE_OFFSCREEN';
-      code: string;
-      requestId?: string;
-      sessionData?: Record<string, unknown>;
+      type: 'RUN_BUILTIN_OFFSCREEN';
+      pluginId: string;
+      fingerprint: string;
+      values: {
+        verifierUrl: string;
+        proxyUrl: string;
+        params: string;
+        methodUrls?: Record<string, { verifierUrl: string; proxyUrl: string }>;
+      };
+      requestId: string | null;
+      sessionData: Record<string, string>;
     }
-  | { type: 'GET_PLUGIN_STATS_OFFSCREEN'; code: string; pageOrigin: string }
   // Forwarded by the background (distinct type so the offscreen handles each
   // inbound chunk exactly once — a content script's runtime.sendMessage is also
   // broadcast directly to the offscreen, which would otherwise double-deliver).

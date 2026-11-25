@@ -1,3 +1,42 @@
+> [!NOTE]
+> **This is a fork of [tlsnotary/tlsn-extension](https://github.com/tlsnotary/tlsn-extension)**, based on release
+> `0.1.0.1501` (commit `68bbd38`). Upstream history is kept unchanged; this fork's work is merged on top of it.
+>
+> On top of upstream, this fork adds:
+> - zero-knowledge private proofs generated in the browser, so raw data never leaves the user's machine
+>   (`private-proof/`)
+> - built-in plugins, an origin-gated page API and proving-flow changes (`packages/extension`, `packages/plugin-sdk`)
+> - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
+>
+> Licensed like upstream: MIT or Apache-2.0, at your option. The upstream README follows.
+
+## Documentation
+
+- [Architecture](docs/architecture.md): components, data flow of a private proof, trust model, build
+- [CROPS](docs/crops.md): censorship resistance, open source, privacy and security, with trade-offs
+- [CROPS compliance](docs/crops-compliance.md): each guarantee with the code that enforces it, its test and its limits
+- [Verification](docs/verification.md): the verify page, verifier keys, hosting
+
+## CROPS
+
+- **Censorship resistance.** The fork's operator runs a TLSNotary verifier and holds an attestation signing key. If
+  either goes away, signed attestations and public proof bundles are plain files the user keeps and can share, and
+  [`verify/`](verify/) is a static page anyone can host. Anyone can run their own verifier from this repository.
+- **Open source.** MIT or Apache-2.0 ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)). Everything
+  builds from this repository: the extension with `npm run build:fork`; [`crops/`](crops/) and `verify/` are plain ES
+  modules with no build step.
+- **Privacy.** The provider sees an ordinary session from the user's browser. The verifier, in Proxy mode, sees the
+  user's IP address, the hosts contacted, timing and traffic sizes, and receives private values only as blinded hash
+  commitments. Anyone who receives a signed attestation sees the coarse claim, the commitment and the signature and, if the
+  user also shares the public bundle, its proofs and public inputs, which include blinded hashes, the lengths of
+  hidden values and the time cutoff, never transcripts or identifiers. The verify page is static and makes no
+  network lookup by commitment.
+- **Security.** Attestations are Ed25519 signatures over a canonical commitment; signing keys live only in the
+  verifier's environment and public keys are listed in [`verify/keys.json`](verify/keys.json). Trust assumption: the
+  transcript is only as trustworthy as the TLSNotary verifier; anyone can run their own. The verify page checks the
+  signature, recomputes the commitment and the proof hash, and checks the claim against the proven public inputs
+  where they expose it; it does not yet re-run the zero-knowledge verifier, so proof validity rests on the signature.
+
 <img src="packages/extension/src/assets/img/icon-128.png" width="64"/>
 
 # TLSNotary Apps & Plugin Tooling
@@ -311,6 +350,7 @@ This installs dependencies for all workspaces and sets up package links.
 Both clients need a verifier. Run it in a separate terminal:
 
 ```bash
+bash core/prepare-core.sh "$PWD/core/tlsn"   # once: the verifier builds against the pinned, patched core
 cd servers
 cargo run -p tlsn-verifier-server   # http://localhost:7047
 ```
@@ -415,6 +455,7 @@ For versioning (note the mobile-specific `0.1.AABB` scheme), credentials, and st
 ### Build the Verifier for Production
 
 ```bash
+bash core/prepare-core.sh "$PWD/core/tlsn"   # once: the verifier builds against the pinned, patched core
 cd servers
 cargo build --release -p tlsn-verifier-server   # binary in servers/target/release/
 ```

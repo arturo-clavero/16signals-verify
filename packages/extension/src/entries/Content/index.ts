@@ -2,21 +2,51 @@ import browser from 'webextension-polyfill';
 import type { DomJson } from '@tlsn/plugin-sdk';
 import type { ContentMessage, ExecCodeResponse } from '../../types/messages';
 import { logger, LogLevel } from '@tlsn/common';
+import { isProductOrigin } from '../../constants/productOrigins';
+import { sanitizePageProgress } from '../../constants/pageProgress';
+import { BUILTIN_PLUGINS } from '../../constants/builtinPlugins';
+import { readConsoleCredentials } from './awsPrivateCredentials';
+import { watchGcpProofProgress } from './gcpProofWatchdog';
 
 // Initialize logger at DEBUG level for content scripts (no IndexedDB access)
 logger.init(LogLevel.DEBUG);
-logger.debug('Content script loaded on:', window.location.href);
+logger.debug('Content script loaded');
+
+// Only allowed origins see our extension ID and get
+// helperStatus answers (constants/productOrigins.ts, build-time list).
+const PRODUCT_PAGE = isProductOrigin(window.location.origin);
+const pendingPrivateRuns = new Map<string, { timer: ReturnType<typeof setTimeout>; error: string }>();
+const finishPrivateRun = (requestId: string) => {
+  const pending = pendingPrivateRuns.get(requestId);
+  if (pending === undefined) return undefined;
+  clearTimeout(pending.timer); pendingPrivateRuns.delete(requestId); return pending;
+};
 
 // Inject a script into the page if needed
 function injectScript() {
   const script = document.createElement('script');
   script.src = browser.runtime.getURL('content.bundle.js');
   script.type = 'text/javascript';
+  // The page script reads this as window.tlsn.extensionId
+  // (pages cannot see an extension's ID otherwise; the stock build sets none).
+  // Allowed origins only; elsewhere the fork looks like the stock build.
+  if (PRODUCT_PAGE) script.dataset.extensionId = browser.runtime.id;
+  // The built-in plugins (id + fingerprint) for window.tlsn.builtInPlugins,
+  // so the embedding page can tell whether this build carries the plugin it expects.
+  if (PRODUCT_PAGE) {
+    script.dataset.builtinPlugins = JSON.stringify(
+      BUILTIN_PLUGINS.map(({ id, sha256 }) => ({ id, sha256 })),
+    );
+  }
   (document.head || document.documentElement).appendChild(script);
   script.onload = () => script.remove();
 }
 
+let stopGcpProofWatchdog: (() => void) | undefined;
+
 function renderPluginUI(json: DomJson, windowId: number) {
+  stopGcpProofWatchdog?.();
+  stopGcpProofWatchdog = undefined;
   let container = document.getElementById('tlsn-plugin-container');
 
   if (!container) {
@@ -33,7 +63,11 @@ function renderPluginUI(json: DomJson, windowId: number) {
     prev && prev.style.bottom === 'auto' ? { top: prev.style.top, left: prev.style.left } : null;
 
   container.innerHTML = '';
-  container.appendChild(createNode(json, windowId));
+  const panel = createNode(json, windowId);
+  container.appendChild(panel);
+  if (panel instanceof HTMLElement && panel.id === 'gcp-private-proof-progress') {
+    stopGcpProofWatchdog = watchGcpProofProgress(panel);
+  }
 
   if (savedPosition) {
     const el = container.querySelector('[data-tlsn-draggable]') as HTMLElement | null;
@@ -188,9 +222,25 @@ function createNode(json: DomJson, windowId: number): HTMLElement | Text {
 }
 
 // Listen for messages from the extension
-browser.runtime.onMessage.addListener((msg: unknown) => {
+browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.MessageSender) => {
+  if ((msg as { type?: unknown })?.type === 'AWS_PRIVATE_CONSOLE_CREDENTIALS') {
+    return readConsoleCredentials(msg, sender, { extensionId: browser.runtime.id,
+      backgroundUrl: browser.runtime.getURL('background.bundle.js'), origin: window.location.origin, top: window.top === window });
+  }
+  const completion = msg as { type?: string; requestId?: unknown; success?: unknown; result?: unknown; error?: unknown };
+  if (completion?.type === 'RUN_BUILTIN_COMPLETE') {
+    if (!PRODUCT_PAGE || sender.id !== browser.runtime.id || sender.tab !== undefined ||
+        (sender.url && sender.url !== browser.runtime.getURL('background.bundle.js')) ||
+        typeof completion.requestId !== 'string') return;
+    const pending = finishPrivateRun(completion.requestId);
+    if (!pending) return;
+    window.postMessage({ type: 'TLSN_RUN_BUILTIN_RESPONSE', requestId: completion.requestId,
+      ...(completion.success === true ? { success: true, result: completion.result } :
+        { success: false, error: pending.error === 'AWS_PRIVATE_PROVING_FAILED' && completion.error === 'AWS_ACTIVITY_ACCESS_REQUIRED'
+          ? 'AWS_ACTIVITY_ACCESS_REQUIRED' : pending.error }) }, window.location.origin);
+    return;
+  }
   const request = msg as ContentMessage;
-  logger.debug('Content script received message:', request);
 
   // Forward offscreen logs to page
   if (request.type === 'OFFSCREEN_LOG') {
@@ -202,6 +252,18 @@ browser.runtime.onMessage.addListener((msg: unknown) => {
       },
       window.location.origin,
     );
+    return; // No response needed
+  }
+
+  // A trusted plugin's progress, on allowed origins only.
+  if (request.type === 'PLUGIN_PROGRESS') {
+    const progress = sanitizePageProgress(request.progress);
+    if (PRODUCT_PAGE && progress && typeof request.requestId === 'string') {
+      window.postMessage(
+        { type: 'TLSN_PLUGIN_PROGRESS', requestId: request.requestId, ...progress },
+        window.location.origin,
+      );
+    }
     return; // No response needed
   }
 
@@ -263,7 +325,6 @@ window.addEventListener('message', (event) => {
 
   // Handle TLSN window.tlsn.open() calls
   if (event.data?.type === 'TLSN_OPEN_WINDOW') {
-    logger.debug('[Content Script] Received TLSN_OPEN_WINDOW request:', event.data.payload);
 
     // Forward to background script with OPEN_WINDOW type
     browser.runtime
@@ -299,61 +360,67 @@ window.addEventListener('message', (event) => {
     return;
   }
 
-  // Handle code execution requests
-  if (event.data?.type === 'TLSN_EXEC_CODE') {
-    logger.debug('[Content Script] Received TLSN_EXEC_CODE request:', event.data.payload);
-
-    // Forward to background script
-    browser.runtime
-      .sendMessage({
-        type: 'EXEC_CODE',
-        code: event.data.payload.code,
-        requestId: event.data.payload.requestId,
-        sessionData: event.data.payload.sessionData,
-        pageOrigin: window.location.origin,
-      })
+  // window.tlsn.runBuiltIn() → run one of the
+  // extension's built-in plugins. Only named fields travel (no code); the
+  // background decides from Chrome's sender (allowed origin, top frame) and
+  // checks every value. The stock entry point for page-supplied code is gone.
+  if (event.data?.type === 'TLSN_RUN_BUILTIN') {
+    if (event.source !== window) return;
+    const p = (event.data.payload ?? {}) as Record<string, unknown>;
+    const requestId = typeof p.requestId === 'string' ? p.requestId.slice(0, 128) : '';
+    const reply = (body: { success: boolean; result?: unknown; error?: string }) =>
+      window.postMessage(
+        { type: 'TLSN_RUN_BUILTIN_RESPONSE', requestId, ...body },
+        window.location.origin,
+      );
+    const privateRun = p.pluginId === 'gcp-work' || p.pluginId === 'aws-private-work';
+    const privateError = p.pluginId === 'aws-private-work' ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
+    if (privateRun && requestId && PRODUCT_PAGE) {
+      if (pendingPrivateRuns.has(requestId)) return;
+      pendingPrivateRuns.set(requestId, { error: privateError, timer: setTimeout(() => {
+        if (finishPrivateRun(requestId)) reply({ success: false, error: privateError });
+      }, 13 * 60 * 1000) });
+    }
+    const connected = privateRun ? (async () => {
+      try {
+        const pong = await browser.runtime.sendMessage({ type: 'PING' });
+        if (!pong || typeof pong !== 'object' || !('type' in pong) || pong.type !== 'PONG') throw new Error();
+      } catch { throw new Error('EXTENSION_CONNECTION_LOST'); }
+      window.postMessage({ type: 'TLSN_RUN_BUILTIN_ACK', requestId }, window.location.origin);
+    })() : Promise.resolve();
+    connected
+      .then(() => browser.runtime.sendMessage({
+        type: 'RUN_BUILTIN',
+        pluginId: p.pluginId,
+        fingerprint: p.fingerprint,
+        verifierUrl: p.verifierUrl,
+        proxyUrl: p.proxyUrl,
+        params: p.params,
+        methodUrls: p.methodUrls,
+        requestId: p.requestId,
+        sessionData: p.sessionData,
+      }))
       .then((msg) => {
-        const response = msg as ExecCodeResponse;
-        logger.debug('[Content Script] EXEC_CODE response:', response);
-
-        // Check if background returned success or error
-        if (response && response.success === false) {
-          // Background returned an error (e.g., user rejected plugin)
-          window.postMessage(
-            {
-              type: 'TLSN_EXEC_CODE_RESPONSE',
-              requestId: event.data.payload.requestId,
-              success: false,
-              error: response.error || 'Code execution failed',
-            },
-            window.location.origin,
-          );
+        const response = msg as ExecCodeResponse & { pending?: boolean };
+        if (privateRun && response?.success === true && response.pending === true) return;
+        finishPrivateRun(requestId);
+        if (response && response.success === true) {
+          reply({ success: true, result: response.result });
         } else {
-          // Success - send result back to page
-          window.postMessage(
-            {
-              type: 'TLSN_EXEC_CODE_RESPONSE',
-              requestId: event.data.payload.requestId,
-              success: true,
-              result: response?.result,
-            },
-            window.location.origin,
-          );
+          reply({ success: false, error: response?.error || 'Code execution failed' });
         }
       })
       .catch((error) => {
-        logger.error('[Content Script] Failed to execute code:', error);
-        // Send error back to page
-        window.postMessage(
-          {
-            type: 'TLSN_EXEC_CODE_RESPONSE',
-            requestId: event.data.payload.requestId,
-            success: false,
-            error: error.message || 'Code execution failed',
-          },
-          window.location.origin,
-        );
+        finishPrivateRun(requestId);
+        if (p.pluginId === 'gcp-work') {
+          try { console.debug('GCP_PRIVATE_CONTENT_SEND_FAILED'); } catch { /* Preserve the generic failure reply. */ }
+        }
+        if (!privateRun) logger.error('[Content Script] Failed to run the built-in plugin:', error);
+        reply({ success: false, error: privateRun
+          ? error?.message === 'EXTENSION_CONNECTION_LOST' ? 'EXTENSION_CONNECTION_LOST' : privateError
+          : error?.message || 'Code execution failed' });
       });
+    return;
   }
 
   // Handle legacy TLSN_CONTENT_SCRIPT_MESSAGE

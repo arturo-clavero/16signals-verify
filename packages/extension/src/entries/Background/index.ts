@@ -1,12 +1,18 @@
 import browser from 'webextension-polyfill';
 import { WindowManager } from '../../background/WindowManager';
+// The PLUGIN_NAVIGATE gate (kept apart from the helper set's import lines).
+import { pluginNavigateTarget } from '../../constants/pluginNavigate';
 import { confirmationManager } from '../../background/ConfirmationManager';
-import type { PluginConfig } from '@tlsn/plugin-sdk';
 import type { InterceptedRequest, InterceptedRequestHeader } from '../../types/window-manager';
 import { validateUrl } from '../../utils/url-validator';
+import { autoApprovalFor, offscreenSessionData } from '../../background/autoApproval';
 import { logger } from '@tlsn/common';
 import { getStoredLogLevel } from '../../utils/logLevelStorage';
-import type { ApprovalMode, BackgroundMessage } from '../../types/messages';
+import type { BackgroundMessage } from '../../types/messages';
+import { GCP_PRIVATE_ROUTE_TTL_MS, AWS_PRIVATE_ROUTE_TTL_MS, livePrivateRoute, takePrivateCompletion } from '../../background/gcpPrivateCompletion';
+import type { GcpPrivateRoute } from '../../background/gcpPrivateCompletion';
+import { readAwsPrivateCapture } from '../../background/awsPrivateCapture';
+import { waitForOffscreenReady } from '../../background/offscreenReady';
 
 const chrome = (global as typeof globalThis).chrome;
 
@@ -22,7 +28,10 @@ const windowManager = new WindowManager();
 // Track requestId → tabId for routing progress events back to the originating tab.
 // Entries have a TTL to prevent leaks if the offscreen document crashes before cleanup.
 const PROGRESS_ROUTE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const progressRoutes: Map<string, { tabId: number; createdAt: number }> = new Map();
+// `pageProgress` marks a route whose run was
+// auto-approved (a trusted plugin on an allowed origin); only those get PLUGIN_PROGRESS.
+const progressRoutes: Map<string, GcpPrivateRoute> =
+  new Map();
 
 // Handle extension install/update
 browser.runtime.onInstalled.addListener((details) => {
@@ -112,6 +121,23 @@ browser.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
 
 // Basic message handler
 browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.MessageSender) => {
+  const privateMessage = msg as { type?: string; requestId?: unknown };
+  const privateDeps = { extensionId: browser.runtime.id, offscreenUrl: browser.runtime.getURL('offscreen.html'), now: Date.now() };
+  if (privateMessage?.type === 'AWS_PRIVATE_CREDENTIALS') {
+    return readAwsPrivateCapture(msg, sender, progressRoutes, { ...privateDeps, now: Date.now,
+      window: id => windowManager.getWindow(id), tab: id => browser.tabs.get(id),
+      send: (id, message) => browser.tabs.sendMessage(id, message, { frameId: 0 }),
+    });
+  }
+  if (privateMessage?.type === 'GCP_PRIVATE_HEARTBEAT' || privateMessage?.type === 'AWS_PRIVATE_HEARTBEAT') {
+    return Promise.resolve({ ok: !!livePrivateRoute(privateMessage.requestId, sender, progressRoutes, privateDeps, privateMessage.type === 'AWS_PRIVATE_HEARTBEAT' ? 'aws' : 'gcp') });
+  }
+  if (privateMessage?.type === 'GCP_PRIVATE_COMPLETE' || privateMessage?.type === 'AWS_PRIVATE_COMPLETE') {
+    const completion = takePrivateCompletion(msg, sender, progressRoutes, privateDeps, privateMessage.type === 'AWS_PRIVATE_COMPLETE' ? 'aws' : 'gcp');
+    if (!completion) return Promise.resolve({ ok: false });
+    return browser.tabs.sendMessage(completion.tabId, { type: 'RUN_BUILTIN_COMPLETE',
+      requestId: completion.requestId, ...completion.response }).then(() => ({ ok: true })).catch(() => ({ ok: false }));
+  }
   const request = msg as BackgroundMessage;
   logger.debug('Message received:', request.type);
 
@@ -163,6 +189,45 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
     return; // No response needed
   }
 
+  // A trusted plugin's progress → the tab that started
+  // the run, only when that run was auto-approved. The fields were checked
+  // where the report was made (offscreen) and are checked again where it is
+  // posted to the page (content script, allowed origins only).
+  // A trusted plugin's "Switch account" → the run's own window to an allowlisted
+  // exact URL (configured at build time) only, for an auto-approved run,
+  // from our offscreen document; any doubt refuses (constants/pluginNavigate.ts).
+  if (request.type === 'PLUGIN_NAVIGATE') {
+    const target = pluginNavigateTarget(request, sender, {
+      extensionId: browser.runtime.id,
+      offscreenUrl: browser.runtime.getURL('offscreen.html'),
+      isAutoApprovedRun: (requestId) => progressRoutes.get(requestId)?.pageProgress === true,
+      tabOfWindow: (windowId) => windowManager.getWindow(windowId)?.tabId,
+    });
+    if (!target) {
+      logger.warn('PLUGIN_NAVIGATE refused');
+      return Promise.resolve({ ok: false });
+    }
+    return browser.tabs
+      .update(target.tabId, { url: target.url })
+      .then(() => ({ ok: true }))
+      .catch(() => ({ ok: false }));
+  }
+
+  if (request.type === 'PLUGIN_PROGRESS') {
+    const route = progressRoutes.get(request.requestId);
+    if ((route?.gcpPrivate || route?.awsPrivate) && !livePrivateRoute(request.requestId, sender, progressRoutes, privateDeps, route.awsPrivate ? 'aws' : 'gcp')) return;
+    if (route?.pageProgress) {
+      browser.tabs
+        .sendMessage(route.tabId, {
+          type: 'PLUGIN_PROGRESS',
+          requestId: request.requestId,
+          progress: request.progress,
+        })
+        .catch(() => {});
+    }
+    return; // No response needed
+  }
+
   // Relay: outbound MPC bytes from offscreen → originating tab (→ page → data channel)
   if (request.type === 'RELAY_OUT') {
     const route = progressRoutes.get(request.requestId);
@@ -189,100 +254,74 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
     return; // No response needed
   }
 
-  // Handle code execution requests
-  if (request.type === 'EXEC_CODE') {
-    logger.debug('EXEC_CODE request received');
-
-    // Store requestId → tabId mapping for progress routing
-    if (request.requestId && sender.tab?.id) {
-      progressRoutes.set(request.requestId, {
+  // Run one of the built-in plugins for the embedding
+  // page. The page names the plugin (id + fingerprint) and the run's values; it
+  // never sends code (the stock code-execution handler is gone). Top-frame
+  // allowed-origin sender + built-in plugin + checked values, decided here from
+  // Chrome's sender (background/autoApproval.ts); anything else is refused.
+  if (request.type === 'RUN_BUILTIN') {
+    const approval = autoApprovalFor(request, sender, browser.runtime.id);
+    if (!approval.ok) {
+      logger.warn('RUN_BUILTIN refused:', approval.error);
+      return Promise.resolve({ success: false, error: approval.error });
+    }
+    logger.info(`Built-in plugin ${approval.plugin.id} on ${approval.origin}`);
+    const requestId = approval.requestId;
+    const privateGcp = approval.plugin.id === 'gcp-work';
+    const privateAws = approval.plugin.id === 'aws-private-work';
+    const privateRun = privateGcp || privateAws;
+    const privateError = privateAws ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
+    if ((privateRun && (!requestId || sender.tab?.id === undefined || progressRoutes.has(requestId))) ||
+        (requestId && (progressRoutes.get(requestId)?.gcpPrivate || progressRoutes.get(requestId)?.awsPrivate))) {
+      if (privateGcp) {
+        try { console.debug('GCP_PRIVATE_ROUTE_REFUSED'); } catch { /* Keep the original refusal. */ }
+      }
+      return Promise.resolve({ success: false, error: privateError });
+    }
+    // The run's tab gets its progress; `pageProgress` marks the run as
+    // auto-approved (PLUGIN_PROGRESS forwarding and PLUGIN_NAVIGATE read it).
+    if (requestId && sender.tab?.id) {
+      progressRoutes.set(requestId, {
         tabId: sender.tab.id,
         createdAt: Date.now(),
+        pageProgress: true,
+        ...(privateGcp ? { gcpPrivate: true } : privateAws ? { awsPrivate: true } : {}),
       });
     }
 
     // Return a Promise so the polyfill keeps the message channel open
-    // and resolves when the async work completes. This is more reliable
-    // than the sendResponse + return true pattern.
+    // and resolves when the async work completes.
     return (async () => {
+      let pendingPrivate = false;
+      let stage: 'CREATE_OFFSCREEN' | 'WAIT_OFFSCREEN' | 'SEND_OFFSCREEN' = 'CREATE_OFFSCREEN';
       try {
-        // Step 1: Look up plugin stats (config, hash, prior execution count) via offscreen
-        let pluginConfig: PluginConfig | null = null;
-        let pluginHash = '';
-        let executionCount = 0;
-        try {
-          const stats = await getPluginStatsViaOffscreen(request.code, request.pageOrigin ?? '');
-          pluginConfig = stats.config;
-          pluginHash = stats.hash;
-          executionCount = stats.count;
-          logger.debug('Plugin stats:', {
-            config: pluginConfig,
-            hash: pluginHash,
-            count: executionCount,
-          });
-        } catch (extractError) {
-          logger.warn('Failed to get plugin stats:', extractError);
-          // Continue with defaults - user will see "Unknown Plugin" warning
-        }
-
-        // Step 2: Request user confirmation
-        const confirmRequestId = `confirm_${Date.now()}_${Math.random()}`;
-        let mode: ApprovalMode;
-
-        try {
-          mode = await confirmationManager.requestConfirmation(
-            pluginConfig,
-            confirmRequestId,
-            executionCount,
-            sender.tab?.url,
-            request.code,
-          );
-        } catch (confirmError) {
-          logger.error('Confirmation error:', confirmError);
-          return {
-            success: false,
-            error: confirmError instanceof Error ? confirmError.message : 'Confirmation failed',
-          };
-        }
-
-        // Step 3: If user denied, return rejection error
-        if (mode === 'rejected') {
-          logger.info('User rejected plugin execution');
-          return {
-            success: false,
-            error: 'User rejected plugin execution',
-          };
-        }
-
-        // Step 4: User allowed - proceed with execution
-        logger.info('User allowed plugin execution, proceeding...');
-
-        // Ensure offscreen document exists
         await createOffscreenDocument();
-
+        stage = 'WAIT_OFFSCREEN';
+        await waitForOffscreenReady(() => chrome.runtime.sendMessage({ type: 'PROCESS_DATA' }));
+        stage = 'SEND_OFFSCREEN';
         const response = await chrome.runtime.sendMessage({
-          type: 'EXEC_CODE_OFFSCREEN',
-          code: request.code,
-          requestId: request.requestId,
-          sessionData: {
-            ...request.sessionData,
-            _approvalMode: mode,
-            _pluginHash: pluginHash,
-          },
+          type: 'RUN_BUILTIN_OFFSCREEN',
+          pluginId: approval.plugin.id,
+          fingerprint: approval.plugin.sha256,
+          values: approval.values,
+          requestId,
+          // The page's checked keys first, then ours (so a page cannot set them).
+          sessionData: offscreenSessionData(approval),
         });
-        logger.debug('EXEC_CODE_OFFSCREEN response:', response);
+        pendingPrivate = privateRun && response?.success === true && response?.pending === true;
+        if (!privateRun) logger.debug('RUN_BUILTIN_OFFSCREEN response:', response);
         return response;
       } catch (error) {
-        logger.error('Error executing code:', error);
+        if (privateGcp) {
+          try { console.debug(`GCP_PRIVATE_START_FAILED_${stage}`); } catch { /* Preserve failure and route cleanup. */ }
+        }
+        if (!privateRun) logger.error('Error running built-in plugin:', error);
         return {
           success: false,
-          error: error instanceof Error ? error.message : 'Code execution failed',
+          error: privateRun ? privateError : error instanceof Error ? error.message : 'Code execution failed',
         };
       } finally {
-        // Clean up progress route
-        if (request.requestId) {
-          progressRoutes.delete(request.requestId);
-        }
+        if (requestId && !pendingPrivate) progressRoutes.delete(requestId);
       }
     })();
   }
@@ -328,7 +367,12 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
 
   // Handle OPEN_WINDOW requests from content scripts
   if (request.type === 'OPEN_WINDOW') {
-    logger.debug('OPEN_WINDOW request received:', request.url);
+    const awsRequestId = (msg as { awsPrivateRequestId?: unknown }).awsPrivateRequestId;
+    const awsRoute = awsRequestId === undefined ? null : livePrivateRoute(awsRequestId, sender, progressRoutes, privateDeps, 'aws');
+    if (awsRequestId !== undefined && (!awsRoute || awsRoute.windowId !== undefined ||
+        request.url !== 'https://ap-southeast-2.console.aws.amazon.com/cloudtrailv2/home?region=ap-southeast-2#/events')) {
+      return Promise.resolve({ type: 'WINDOW_ERROR', payload: { error: 'AWS_PRIVATE_COLLECTION_FAILED' } });
+    }
 
     // Validate URL using comprehensive validator
     const urlValidation = validateUrl(request.url);
@@ -390,6 +434,11 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
         logger.info(`Window created: ${windowId}, Tab: ${tabId}`);
 
         try {
+          if (awsRoute) {
+            if (livePrivateRoute(awsRequestId, sender, progressRoutes, { ...privateDeps, now: Date.now() }, 'aws') !== awsRoute ||
+                awsRoute.windowId !== undefined) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+            awsRoute.windowId = windowId;
+          }
           // Register window with WindowManager
           const managedWindow = await windowManager.registerWindow({
             id: windowId,
@@ -499,41 +548,6 @@ async function createOffscreenDocument(): Promise<void> {
 // Initialize offscreen document
 createOffscreenDocument().catch((err) => logger.error('Offscreen document error:', err));
 
-/**
- * Get plugin stats (config, content hash, prior execution count) by sending code
- * to the offscreen document, where QuickJS, SubtleCrypto and IndexedDB are available.
- */
-async function getPluginStatsViaOffscreen(
-  code: string,
-  pageOrigin: string,
-): Promise<{ config: PluginConfig | null; hash: string; count: number }> {
-  try {
-    // Ensure offscreen document exists
-    await createOffscreenDocument();
-
-    // Send message to offscreen and wait for response
-    const response = await chrome.runtime.sendMessage({
-      type: 'GET_PLUGIN_STATS_OFFSCREEN',
-      code,
-      pageOrigin,
-    });
-
-    if (response?.success) {
-      return {
-        config: (response.config as PluginConfig | null) ?? null,
-        hash: (response.hash as string) ?? '',
-        count: (response.count as number) ?? 0,
-      };
-    }
-
-    logger.warn('Plugin stats lookup returned no data:', response?.error);
-    return { config: null, hash: '', count: 0 };
-  } catch (error) {
-    logger.error('Failed to get plugin stats via offscreen:', error);
-    return { config: null, hash: '', count: 0 };
-  }
-}
-
 // Periodic cleanup of invalid windows and stale progress routes (every 5 minutes)
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 setInterval(() => {
@@ -545,7 +559,7 @@ setInterval(() => {
   // Evict stale progress routes (TTL-based)
   const now = Date.now();
   for (const [requestId, route] of progressRoutes) {
-    if (now - route.createdAt > PROGRESS_ROUTE_TTL_MS) {
+    if (now - route.createdAt >= (route.awsPrivate ? AWS_PRIVATE_ROUTE_TTL_MS : route.gcpPrivate ? GCP_PRIVATE_ROUTE_TTL_MS : PROGRESS_ROUTE_TTL_MS)) {
       logger.debug('Evicting stale progress route:', requestId);
       progressRoutes.delete(requestId);
     }

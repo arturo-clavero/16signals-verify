@@ -4,9 +4,13 @@ import browser from 'webextension-polyfill';
 import { SessionManager } from '../../offscreen/SessionManager';
 import { logger } from '@tlsn/common';
 import { getStoredLogLevel } from '../../utils/logLevelStorage';
-import { sha256 } from '../../utils/cryptoHash';
-import { getPluginCount, incrementPluginCount } from '../../utils/pluginExecutionCounts';
 import type { OffscreenMessage } from '../../types/messages';
+import { prepareBuiltInRun, readPackagedFile } from '../../offscreen/builtinRun';
+import { runSessionData } from '../../offscreen/pluginHash';
+import { createGcpPrivateModule } from '../../gcp-private/browser-client.mjs';
+import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
+import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
+import { AwsPrivateWitnessRun } from '../../offscreen/awsPrivateWitness';
 
 const OffscreenApp: React.FC = () => {
   useEffect(() => {
@@ -18,25 +22,17 @@ const OffscreenApp: React.FC = () => {
 
     // Initialize SessionManager
     const sessionManager = new SessionManager();
+    let privateRunning = false;
     logger.debug('SessionManager initialized in Offscreen');
 
     // Listen for messages from background script
-    browser.runtime.onMessage.addListener((msg: unknown) => {
+    browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.MessageSender) => {
       const request = msg as OffscreenMessage;
       // Example message handling
       if (request.type === 'PROCESS_DATA') {
         return Promise.resolve({
           success: true,
           data: 'Processed in offscreen',
-        });
-      }
-
-      if (request.type === 'GET_PLUGIN_STATS_OFFSCREEN') {
-        return sessionManager.awaitInit().then(async (sm) => {
-          const config = await sm.extractConfig(request.code as string);
-          const hash = await sha256((request.code as string) + (request.pageOrigin as string));
-          const count = await getPluginCount(hash);
-          return { success: true, config, hash, count };
         });
       }
 
@@ -53,48 +49,105 @@ const OffscreenApp: React.FC = () => {
         return;
       }
 
-      // Handle code execution requests
-      if (request.type === 'EXEC_CODE_OFFSCREEN') {
-        logger.debug('Offscreen executing code:', request.code);
-
-        if (!sessionManager) {
-          return Promise.resolve({
-            success: false,
-            error: 'SessionManager not initialized',
-            requestId: request.requestId,
-          });
-        }
-
-        return sessionManager
-          .awaitInit()
-          .then((sm) =>
-            sm.executePlugin(
-              request.code as string,
-              request.requestId as string | undefined,
-              request.sessionData as Record<string, string> | undefined,
-            ),
-          )
-          .then(async (result) => {
-            logger.debug('Plugin execution result:', result);
-            const pluginHash = (request.sessionData as Record<string, string> | undefined)
-              ?._pluginHash;
-            if (pluginHash) {
-              await incrementPluginCount(pluginHash);
+      // Run one of the built-in plugins. The
+      // message carries the plugin id, fingerprint and values, never code; the
+      // code is read from the package here (offscreen/builtinRun.ts). No
+      // handler runs code taken from a message (the stock code-execution and
+      // plugin-stats handlers are gone).
+      if (request.type === 'RUN_BUILTIN_OFFSCREEN') {
+        return prepareBuiltInRun(request, sender, {
+          extensionId: browser.runtime.id,
+          backgroundUrl: browser.runtime.getURL('background.bundle.js'),
+          readPackaged: readPackagedFile,
+        }).then(async (prepared) => {
+          if ('error' in prepared) {
+            logger.warn('RUN_BUILTIN_OFFSCREEN refused:', prepared.error);
+            return { success: false, error: prepared.error, requestId: request.requestId };
+          }
+          const execute = async (privateModule?: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun) => {
+            const sm = await sessionManager.awaitInit();
+            return sm.executePlugin(prepared.code, request.requestId ?? undefined,
+              runSessionData(request.sessionData, prepared.sha256), privateModule);
+          };
+          if (request.pluginId === 'gcp-work' || request.pluginId === 'aws-private-work') {
+            const aws = request.pluginId === 'aws-private-work';
+            const privateError = aws ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
+            const prefix = aws ? 'AWS_PRIVATE' : 'GCP_PRIVATE';
+            if (privateRunning || !request.requestId) {
+              if (!aws) gcpPrivateDiagnostic(privateRunning ? 'RUN_BUSY' : 'RUN_ID_MISSING');
+              return { success: false, error: privateError };
             }
-            return {
-              success: true,
-              result,
-              requestId: request.requestId,
-            };
-          })
-          .catch((error) => {
+            let privateModule: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun | undefined;
+            try {
+              const params = JSON.parse(request.values.params);
+              if (aws) {
+                const attempt = params?.privateAttempt;
+                const keys = ['proofId', 'pluginSha256', 'nonceMac', 'identityService', 'region', 'issuedAt', 'expiresAt'];
+                if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt) ||
+                    Object.keys(attempt).length !== keys.length || !keys.every(key => Object.hasOwn(attempt, key)) ||
+                    attempt.proofId !== request.requestId || attempt.pluginSha256 !== prepared.sha256) throw new Error();
+                const module = createAwsPrivateModule({ attempt, workerUrl: browser.runtime.getURL('aws-private/browser-worker.js'),
+                  onProgress: ({ completedProofs }) => {
+                    browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,
+                      progress: { method: 'AWS_ACCOUNT', status: 'busy', index: completedProofs, total: 128 } }).catch(() => {});
+                  },
+                });
+                try { privateModule = new AwsPrivateWitnessRun(runSessionData(request.sessionData, prepared.sha256), request.requestId, attempt, module); }
+                catch { module.clear(); throw new Error(); }
+              } else {
+              if (!params || typeof params !== 'object' || !params.privateInput ||
+                  Object.keys(params.privateInput).length !== 1 || typeof params.privateInput.projectId !== 'string') throw new Error();
+              privateModule = createGcpPrivateModule({
+                projectId: params.privateInput.projectId,
+                policy: { cutoff: params.cutoff, windowDays: params.windowDays },
+                workerUrl: browser.runtime.getURL('gcp-private/browser-worker.js'),
+                onProgress: ({ completedProofs }) => {
+                  sessionManager.updateGcpProofProgress(request.requestId!, completedProofs);
+                  browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,
+                    progress: { method: 'GCP_WORK', status: 'busy', index: completedProofs, total: 128 } }).catch(() => {});
+                },
+              });
+              }
+            } catch { if (!aws) gcpPrivateDiagnostic('MODULE_FAILED'); privateModule?.clear(); return { success: false, error: privateError }; }
+            privateRunning = true;
+            const heartbeat = setInterval(() => {
+              browser.runtime.sendMessage({ type: `${prefix}_HEARTBEAT`, requestId: request.requestId })
+                .then(reply => {
+                  if (!reply || typeof reply !== 'object' || !('ok' in reply) || reply.ok !== true) {
+                    if (!aws) gcpPrivateDiagnostic('HEARTBEAT_NOT_OK');
+                    privateModule!.clear();
+                  }
+                }).catch(() => { if (!aws) gcpPrivateDiagnostic('HEARTBEAT_REJECTED'); privateModule!.clear(); });
+            }, 20_000);
+            // Return the acknowledgement before awaiting capture/proving: one
+            // service-worker request must not remain open past Chrome's five minutes.
+            void (async () => {
+              try {
+                const result = await execute(privateModule!);
+                await browser.runtime.sendMessage({ type: `${prefix}_COMPLETE`, requestId: request.requestId, success: true, result });
+              } catch {
+                if (!aws) gcpPrivateDiagnostic('EXECUTE_FAILED');
+                const failure = aws && privateModule instanceof AwsPrivateWitnessRun && privateModule.activityAccessRequired
+                  ? 'AWS_ACTIVITY_ACCESS_REQUIRED' : privateError;
+                await browser.runtime.sendMessage({ type: `${prefix}_COMPLETE`, requestId: request.requestId,
+                  success: false, error: failure }).catch(() => {});
+              } finally { clearInterval(heartbeat); privateModule!.clear(); privateRunning = false; }
+            })();
+            return { success: true, pending: true, requestId: request.requestId };
+          }
+          try {
+            const result = await execute();
+            logger.debug('Plugin execution result:', result);
+            return { success: true, result, requestId: request.requestId };
+          } catch (error) {
             logger.error('Plugin execution error:', error);
             return {
               success: false,
-              error: error.message,
+              error: error instanceof Error ? error.message : String(error),
               requestId: request.requestId,
             };
-          });
+          }
+        });
       }
     });
   }, []);

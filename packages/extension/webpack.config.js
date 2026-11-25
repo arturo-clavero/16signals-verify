@@ -48,6 +48,13 @@ var options = {
   module: {
     rules: [
       {
+        // No absolute build path in the bundles
+        // (utils/forkScriptNameLoader.js).
+        test: /emscripten-module\.browser\.mjs$/,
+        include: /@jitl[\\/]quickjs-ng-wasmfile-release-sync/,
+        use: path.resolve(__dirname, 'utils', 'forkScriptNameLoader.js'),
+      },
+      {
         // Ignore .d.ts files from node_modules to prevent webpack parse errors
         test: /\.d\.ts$/,
         include: /node_modules/,
@@ -170,6 +177,16 @@ var options = {
       'process.env': '{}',
       global: 'globalThis',
       __EXTENSION_VERSION__: JSON.stringify(require('./package.json').version),
+      // Origins that may see the extension ID and ask
+      // helperStatus (constants/productOrigins.ts); set by build.sh. Unset = none.
+      __FORK_PRODUCT_ORIGINS__: JSON.stringify(process.env.FORK_PRODUCT_ORIGINS || ''),
+      // Index of the built-in plugins (id, sha256 +
+      // layout of each packaged bundle, constants/builtinPlugins.ts); set by
+      // build.sh. Unset = none (nothing can run).
+      __FORK_PLUGIN_ALLOWLIST__: JSON.stringify(process.env.FORK_PLUGIN_ALLOWLIST || ''),
+      // Exact https URLs a trusted plugin may send its own window to
+      // (constants/pluginNavigate.ts); set by build.sh. Unset = none.
+      __FORK_NAVIGATE_URLS__: JSON.stringify(process.env.FORK_NAVIGATE_URLS || ''),
     }),
     new CopyWebpackPlugin({
       patterns: [
