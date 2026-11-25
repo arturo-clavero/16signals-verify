@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { findPackageJSON } from 'node:module';
@@ -10,9 +12,16 @@ assert.ok(process.argv.slice(2).every(arg => arg === '--update-pins'));
 const backend = packageInfo.dependencies['@aztec/bb.js'];
 assert.equal(JSON.parse(await readFile(findPackageJSON('@aztec/bb.js', import.meta.url))).version, backend);
 const compiler = '1.0.0-beta.19+74d6be658e1ad252f87943292ba09bdd4da80bd4';
+const nargo = process.env.GCP_NOIR_NARGO || 'nargo';
+const version = spawnSync(nargo, ['--version'], { encoding: 'utf8' });
+assert.equal(version.status, 0, 'Install the pinned Noir compiler or set GCP_NOIR_NARGO.');
+assert.ok(version.stdout.includes(`noirc version = ${compiler}\n`) && version.stdout.includes('is dirty: false'), 'Wrong Noir compiler.');
 const shared = await loadPinnedArtifacts(file => readFile(new URL(`../gcp/dist/artifacts/${file}`, import.meta.url)));
 const artifacts = Object.fromEntries(['header-v1', 'atom-v1', 'headers-small-v1', 'atoms-small-v1'].map(id => [id, shared[id]]));
-for (const name of ['escaped-atom', 'xml-text', 'identity-link', 'event-link', 'escaped-atoms-small', 'escaped-atom-small']) {
+for (const name of ['escaped-atom', 'xml-text', 'identity-refresh', 'identity-link', 'event-link', 'escaped-atoms-small', 'escaped-atom-small', 'user-agent-class', 'event-batch', 'event-batch-wide']) {
+  const directory = new URL(`./circuits/${name}/`, import.meta.url);
+  const result = spawnSync(nargo, ['compile'], { cwd: fileURLToPath(directory), encoding: 'utf8', timeout: 120000 });
+  assert.equal(result.status, 0, `Compilation failed for ${name}: ${result.stderr}`);
   artifacts[`aws-${name}-v1`] = JSON.parse(await readFile(new URL(`./circuits/${name}/target/aws_private_${name.replaceAll('-', '_')}.json`, import.meta.url)));
 }
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');

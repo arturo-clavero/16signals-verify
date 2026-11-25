@@ -9,10 +9,10 @@ import { createProofRuntime } from '../gcp/proof-runtime.mjs';
 const read = file => readFile(new URL(`./dist/artifacts/${file}`, import.meta.url));
 const error = { message: 'AWS_PRIVATE_ARTIFACT_INVALID' };
 
-test('loads ten pinned artifact/key pairs and owns verification key bytes', async () => {
+test('loads fourteen pinned artifact/key pairs and owns verification key bytes', async () => {
   const artifacts = await loadAwsArtifacts(read), sources = [];
   const registry = await loadAwsVerificationKeys(async file => { const bytes = await read(file); sources.push(bytes); return bytes; });
-  assert.equal(Object.keys(artifacts).length, 10);
+  assert.equal(Object.keys(artifacts).length, 14);
   sources.forEach(bytes => bytes.fill(0));
   for (const [id, pin] of Object.entries(pins.circuits)) {
     assert.equal(artifacts[id].noir_version, pins.compiler);

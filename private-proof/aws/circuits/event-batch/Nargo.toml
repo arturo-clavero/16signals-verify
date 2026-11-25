@@ -1,0 +1,7 @@
+[package]
+name = "aws_private_event_batch"
+type = "bin"
+
+[dependencies]
+gcp_private_json = { path = "../../../gcp/circuits/lib" }
+aws_private_json = { path = "../lib" }

@@ -1,3 +1,5 @@
+import { AWS_BATCH_CAPACITY, AWS_EVENT_BATCH_CIRCUITS } from './event-batch.mjs';
+
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const fail = () => { throw new Error('AWS_PRIVATE_CLIENT_INVALID'); };
 
@@ -23,7 +25,11 @@ export function awsCircuitInputs({ circuitId: id, publicInputs: values }, openin
     return bytes;
   };
   try {
-    if (id === 'aws-identity-link-v1' || id === 'aws-event-link-v1') {
+    if (id === 'aws-identity-refresh-v1') {
+      inputs.hashes = [take(0, 32), take(32, 32)]; inputs.lengths = take(64, 2);
+      inputs.old_preimage = opening(inputs.hashes[0], inputs.lengths[0], 144);
+      inputs.new_preimage = opening(inputs.hashes[1], inputs.lengths[1], 144);
+    } else if (id === 'aws-identity-link-v1' || id === 'aws-event-link-v1') {
       const fields = id === 'aws-identity-link-v1'
         ? [['id_preimage', 144], ['arn_preimage', 528], ['path_preimage', 528], ['user_preimage', 80],
           ['actor_id_preimage', 146], ['actor_arn_preimage', 530], ['actor_account_preimage', 30], ['recipient_preimage', 30]]
@@ -55,7 +61,26 @@ export function awsCircuitInputs({ circuitId: id, publicInputs: values }, openin
       const capacity = id === 'aws-escaped-atom-v1' ? 528 : 80;
       inputs.encoded_preimage = opening(inputs.encoded_commitment, inputs.encoded_length, capacity);
       inputs.decoded_preimage = opening(inputs.decoded_commitment, inputs.decoded_length, capacity);
-    } else if (['header-v1', 'atom-v1', 'aws-xml-text-v1'].includes(id)) {
+    } else if (AWS_EVENT_BATCH_CIRCUITS.some(circuit => circuit.circuitId === id)) {
+      const { rows, bodyBytes } = AWS_EVENT_BATCH_CIRCUITS.find(circuit => circuit.circuitId === id), slots = rows * 3;
+      inputs.identity_hashes = Array.from({ length: 4 }, (_, i) => take(i * 32, 32)); inputs.identity_lengths = take(128, 4);
+      ['UserId', 'Arn', 'Path', 'UserName'].forEach((name, i) => {
+        inputs[['id_preimage', 'arn_preimage', 'path_preimage', 'user_preimage'][i]] =
+          opening(inputs.identity_hashes[i], inputs.identity_lengths[i], AWS_BATCH_CAPACITY[name] + 16);
+      });
+      const hashes = Array.from({ length: slots }, (_, i) => take(132 + i * 32, 32)), lengths = take(132 + slots * 32, slots);
+      inputs.row_hashes = Array.from({ length: rows }, (_, r) => hashes.slice(r * 3, r * 3 + 3));
+      inputs.row_lengths = Array.from({ length: rows }, (_, r) => lengths.slice(r * 3, r * 3 + 3));
+      inputs.row_actor = inputs.row_hashes.map((h, r) => opening(h[0], inputs.row_lengths[r][0], AWS_BATCH_CAPACITY.actor + 16));
+      inputs.row_body = inputs.row_hashes.map((h, r) => opening(h[1], inputs.row_lengths[r][1], bodyBytes + 16));
+      inputs.row_recipient = inputs.row_hashes.map((h, r) => opening(h[2], inputs.row_lengths[r][2], AWS_BATCH_CAPACITY.recipient + 16));
+      // The userAgent ends at the first backslash after its opening \" (it holds none); the circuit checks the rest.
+      inputs.ua_lengths = inputs.row_body.map((body, r) => {
+        const end = body.indexOf(92, 2);
+        if (end < 2 || end + 2 > inputs.row_lengths[r][1]) fail();
+        return end + 2;
+      });
+    } else if (['header-v1', 'atom-v1', 'aws-xml-text-v1', 'aws-user-agent-class-v1'].includes(id)) {
       inputs.commitment = take(0, 32); inputs.length = values[32];
       inputs.preimage = opening(inputs.commitment, inputs.length, id === 'header-v1' ? 2064 : 528);
     } else fail();

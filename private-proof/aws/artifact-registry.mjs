@@ -3,8 +3,8 @@ import packageInfo from '../gcp/package.json' with { type: 'json' };
 
 const registries = new WeakMap();
 const fail = () => { throw new Error('AWS_PRIVATE_ARTIFACT_INVALID'); };
-const IDS = ['atom-v1', 'aws-escaped-atom-v1', 'aws-escaped-atoms-small-v1', 'aws-escaped-atom-small-v1', 'aws-event-link-v1',
-  'aws-identity-link-v1', 'aws-xml-text-v1', 'atoms-small-v1', 'header-v1', 'headers-small-v1'].sort();
+const IDS = ['atom-v1', 'aws-escaped-atom-v1', 'aws-escaped-atoms-small-v1', 'aws-escaped-atom-small-v1', 'aws-event-batch-v1', 'aws-event-batch-wide-v1', 'aws-event-link-v1',
+  'aws-identity-refresh-v1', 'aws-identity-link-v1', 'aws-user-agent-class-v1', 'aws-xml-text-v1', 'atoms-small-v1', 'header-v1', 'headers-small-v1'].sort();
 function metadata() {
   if (pins.compiler !== '1.0.0-beta.19+74d6be658e1ad252f87943292ba09bdd4da80bd4' ||
       pins.backend !== packageInfo.dependencies['@aztec/bb.js'] || pins.verifierTarget !== 'noir-recursive' ||
