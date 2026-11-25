@@ -280,3 +280,13 @@ describe('GCP private witness stays in its offscreen execution', () => {
     }
   });
 });
+
+it('Fast accepts one fresh identity only and keeps full collection strict', async () => {
+  const local = { ...module(), fastCheck: true };
+  const run = new GcpPrivateWitnessRun(data, proofId, local);
+  await session(run, 0);
+  expect((await run.finish()).sessionIds).toHaveLength(1);
+  const full = new GcpPrivateWitnessRun(data, proofId, module());
+  await session(full, 0);
+  await expect(full.finish()).rejects.toThrow(); full.clear();
+});

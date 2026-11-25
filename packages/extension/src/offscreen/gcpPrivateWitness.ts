@@ -34,6 +34,7 @@ export interface PrivateProofModule {
   prove(witnesses: readonly GcpPrivateWitness[], signal: AbortSignal): Promise<unknown>;
 }
 export interface GcpPrivateProofModule extends PrivateProofModule {
+  readonly fastCheck?: boolean;
   /** Local query construction only; the final circuit must authenticate this account again. */
   identityEmail(witness: Readonly<GcpPrivateWitness>): string;
   prove(witnesses: readonly GcpPrivateWitness[], signal: AbortSignal): Promise<{ proofs: GcpPrivateProof[] }>;
@@ -301,7 +302,7 @@ export class GcpPrivateWitnessRun extends PrivateWitnessRun {
   constructor(run: Record<string, string>, requestId: string | null, module: GcpPrivateProofModule) {
     super(run, requestId, module, {
       method: 'GCP_WORK', proveTimeoutMs: PROVE_TIMEOUT_MS,
-      steps: STEPS.map(step => ({ step, host: step === 'identity' ? 'accounts.google.com' : 'logging.clients6.google.com' })),
+      steps: (module.fastCheck ? STEPS.slice(0, 1) : STEPS).map(step => ({ step, host: step === 'identity' ? 'accounts.google.com' : 'logging.clients6.google.com' })),
       diagnostic: gcpPrivateDiagnostic,
       identityResult(witness) {
         const email = module.identityEmail(witness);

@@ -7,7 +7,7 @@ import { getStoredLogLevel } from '../../utils/logLevelStorage';
 import type { OffscreenMessage } from '../../types/messages';
 import { prepareBuiltInRun, readPackagedFile } from '../../offscreen/builtinRun';
 import { runSessionData } from '../../offscreen/pluginHash';
-import { createGcpPrivateModule } from '../../gcp-private/browser-client.mjs';
+import { createGcpPrivateModule, readCloudLink } from '../../gcp-private/browser-client.mjs';
 import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
 import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
 import { AwsPrivateWitnessRun } from '../../offscreen/awsPrivateWitness';
@@ -55,18 +55,20 @@ const OffscreenApp: React.FC = () => {
       // handler runs code taken from a message (the stock code-execution and
       // plugin-stats handlers are gone).
       if (request.type === 'RUN_BUILTIN_OFFSCREEN') {
-        return prepareBuiltInRun(request, sender, {
+        const prepare = (value: typeof request) => prepareBuiltInRun(value, sender, {
           extensionId: browser.runtime.id,
           backgroundUrl: browser.runtime.getURL('background.bundle.js'),
           readPackaged: readPackagedFile,
-        }).then(async (prepared) => {
+        });
+        return prepare(request).then(async (prepared) => {
           if ('error' in prepared) {
             logger.warn('RUN_BUILTIN_OFFSCREEN refused:', prepared.error);
             return { success: false, error: prepared.error, requestId: request.requestId };
           }
+          let activeCode = prepared.code;
           const execute = async (privateModule?: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun) => {
             const sm = await sessionManager.awaitInit();
-            return sm.executePlugin(prepared.code, request.requestId ?? undefined,
+            return sm.executePlugin(activeCode, request.requestId ?? undefined,
               runSessionData(request.sessionData, prepared.sha256), privateModule);
           };
           if (request.pluginId === 'gcp-work' || request.pluginId === 'aws-private-work') {
@@ -80,13 +82,20 @@ const OffscreenApp: React.FC = () => {
             let privateModule: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun | undefined;
             try {
               const params = JSON.parse(request.values.params);
+              const binding = aws ? params.fastSource?.userIdHash : params.fastSource?.scopeHash;
+              const linkSecret = typeof binding === 'string' ? await readCloudLink(aws ? 'aws' : 'gcp', binding) : null;
+              const fastSource = linkSecret ? params.fastSource : undefined;
+              const effective = await prepare({ ...request, values: { ...request.values,
+                params: JSON.stringify({ ...params, fastCheck: !!fastSource }) } });
+              if ('error' in effective) { linkSecret?.fill(0); throw new Error(); }
+              activeCode = effective.code;
               if (aws) {
                 const attempt = params?.privateAttempt;
                 const keys = ['proofId', 'pluginSha256', 'nonceMac', 'identityService', 'region', 'issuedAt', 'expiresAt'];
                 if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt) ||
                     Object.keys(attempt).length !== keys.length || !keys.every(key => Object.hasOwn(attempt, key)) ||
                     attempt.proofId !== request.requestId || attempt.pluginSha256 !== prepared.sha256) throw new Error();
-                const module = createAwsPrivateModule({ attempt, workerUrl: browser.runtime.getURL('aws-private/browser-worker.js'),
+                const module = createAwsPrivateModule({ attempt, fastSource, linkSecret: linkSecret ?? undefined, workerUrl: browser.runtime.getURL('aws-private/browser-worker.js'),
                   onProgress: ({ completedProofs }) => {
                     browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,
                       progress: { method: 'AWS_ACCOUNT', status: 'busy', index: completedProofs, total: 128 } }).catch(() => {});
@@ -98,7 +107,7 @@ const OffscreenApp: React.FC = () => {
               if (!params || typeof params !== 'object' || !params.privateInput ||
                   Object.keys(params.privateInput).length !== 1 || typeof params.privateInput.projectId !== 'string') throw new Error();
               privateModule = createGcpPrivateModule({
-                projectId: params.privateInput.projectId,
+                projectId: params.privateInput.projectId, fastSource, linkSecret: linkSecret ?? undefined,
                 policy: { cutoff: params.cutoff, windowDays: params.windowDays },
                 workerUrl: browser.runtime.getURL('gcp-private/browser-worker.js'),
                 onProgress: ({ completedProofs }) => {

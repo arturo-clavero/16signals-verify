@@ -10,6 +10,7 @@ export class AwsPrivateWitnessRun extends PrivateWitnessRun {
   private attempt: AwsPrivateAttempt;
   private stopped = false;
   private collectionAccessRequired = false;
+  private readonly fastCheck: boolean;
   get activityAccessRequired(): boolean { return this.collectionAccessRequired; }
   private readonly collectionSteps: { step: string; host: string }[];
   constructor(run: Record<string, string>, requestId: string | null, attempt: AwsPrivateAttempt, module: AwsPrivateModule) {
@@ -27,16 +28,17 @@ export class AwsPrivateWitnessRun extends PrivateWitnessRun {
       },
     });
     this.collectionSteps = steps;
+    this.fastCheck = module.fastCheck === true;
     this.attempt = { ...attempt };
     this.deadline = setTimeout(() => this.clear(), Math.min(AWS_PRIVATE_TIMEOUT_MS, attempt.expiresAt - Date.now()));
   }
   async collect(capture: () => Promise<AwsCapture>) {
     if (this.stopped || this.collection) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
-    this.collection = createAwsLocalSession({ attempt: this.attempt });
+    this.collection = createAwsLocalSession({ attempt: this.attempt, identityOnly: this.fastCheck });
     const value = await capture();
     try {
       const requests = await this.collection.prepare(value);
-      if (this.stopped || requests.length < 2 || requests.length > 4) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > 4) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
       this.collectionSteps.splice(0, this.collectionSteps.length, ...requests.map((_, index) => ({
         step: index ? `E${index - 1}` : 'identity', host: index ? 'cloudtrail.us-east-1.amazonaws.com' : 'iam.amazonaws.com',
       })));

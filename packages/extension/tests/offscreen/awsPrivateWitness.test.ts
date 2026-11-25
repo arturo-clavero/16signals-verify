@@ -178,3 +178,16 @@ it('retains only a fixed collection-permission flag while erasing captured crede
     vi.restoreAllMocks();
   }
 });
+
+it('Fast collects only IAM and completes exactly one fresh session', async () => {
+  const prepareCollection = vi.fn().mockResolvedValue([{}]);
+  const collect = vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ prepare: prepareCollection, clear: vi.fn() } as never);
+  const result = { ...bundle(), sessionIds: ids.slice(0, 1) };
+  const local = { ...module(), fastCheck: true, prove: vi.fn().mockResolvedValue(result) };
+  const run = create(local), credentials = { secretAccessKey: 'PRIVATE_SENTINEL' };
+  expect(await run.collect(async () => ({ credentials }) as never)).toHaveLength(1);
+  expect(collect).toHaveBeenCalledWith(expect.objectContaining({ identityOnly: true }));
+  expect(credentials.secretAccessKey).toBe('');
+  await (await prepare(run)).accept();
+  expect(await run.finish()).toEqual(result);
+});

@@ -35,12 +35,12 @@ export function proofBundle(value: unknown): GcpPrivateProof[] {
 
 export function sanitizeGcpPrivateResult(value: unknown) {
   if (!exactKeys(value, ['kind', 'version', 'proofs', 'sessionIds']) || value.kind !== 'GCP_PRIVATE_RESULT' || value.version !== 1 ||
-      !Array.isArray(value.sessionIds) || value.sessionIds.length !== 6) fail();
+      !Array.isArray(value.sessionIds) || ![1, 6].includes(value.sessionIds.length)) fail();
   const sessionIds = Array.from(value.sessionIds, id => {
     if (typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) fail();
     return id;
   });
-  if (new Set(sessionIds.map(id => id.toLowerCase())).size !== 6) fail();
+  if (new Set(sessionIds.map(id => id.toLowerCase())).size !== sessionIds.length) fail();
   const result = { kind: 'GCP_PRIVATE_RESULT' as const, version: 1 as const, proofs: proofBundle({ proofs: value.proofs }), sessionIds };
   if (JSON.stringify(result).length > 4 * 1024 * 1024) fail();
   return result;

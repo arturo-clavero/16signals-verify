@@ -9,6 +9,7 @@ export interface AwsPrivateResult {
   proofs: Array<{ circuitId: string; proof: string; publicInputs: string[] }>;
 }
 export interface AwsPrivateModule extends PrivateProofModule {
+  readonly fastCheck?: boolean;
   clear(): void;
   getRevealPlan(session: Readonly<GcpPrivateSession>, transcripts: { sent: Uint8Array; recv: Uint8Array }): GcpPrivateRevealPlan;
 }
@@ -19,10 +20,11 @@ export interface AwsSignedRequest { url: string; method: string; headers: Record
 export function awsPrivateCredentials(value: unknown, now?: number): AwsCredentials;
 export function awsConsoleSession(value: unknown, now?: number): { url: string; headers: Record<string, string>; accountId?: string };
 export function readAwsPrivateResponse(url: string, options: RequestInit, deps?: { fetchAws?: typeof fetch; signal?: AbortSignal }): Promise<string>;
-export function createAwsLocalSession(options: { attempt: AwsPrivateAttempt }): {
+export function createAwsLocalSession(options: { attempt: AwsPrivateAttempt; identityOnly?: boolean }): {
   prepare(capture: AwsCapture): Promise<AwsSignedRequest[]>; clear(): void;
 };
 export function sanitizeAwsPrivateResult(value: unknown): AwsPrivateResult;
 export function createAwsPrivateModule(options: {
+  fastSource?: { userIdHash: string; length: number }; linkSecret?: Uint8Array;
   attempt: AwsPrivateAttempt; workerUrl: string; onProgress?: (value: { completedProofs: number }) => void;
 }): AwsPrivateModule;
