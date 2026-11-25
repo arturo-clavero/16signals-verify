@@ -150,23 +150,78 @@ export function eventFixture(options = {}) {
   return { receipt, expected: { ...fixtureExpected }, claims, openings };
 }
 
+// Synthetic events shaped like reviewed CloudTrail samples of each catalog operation; every value is made up.
+const lambdaResponse = name => ({ functionName: name, functionArn: `arn:aws:lambda:us-east-1:111122223333:function:${name}`,
+  runtime: 'nodejs20.x', role: 'arn:aws:iam::111122223333:role/synthetic-role', handler: 'index.handler', codeSize: 300,
+  description: '', timeout: 15, memorySize: 256, lastModified: '2026-10-29T08:00:00.000+0000', codeSha256: 'c3ludGhldGljLWNvZGUtc2hhMjU2LXZhbHVl',
+  version: '$LATEST', environment: {}, tracingConfig: { mode: 'PassThrough' }, revisionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  state: 'Active', lastUpdateStatus: 'InProgress', lastUpdateStatusReason: 'The function is being created.',
+  lastUpdateStatusReasonCode: 'Creating', packageType: 'Zip', architectures: ['x86_64'], ephemeralStorage: { size: 512 },
+  snapStart: { applyOn: 'None', optimizationStatus: 'Off' },
+  runtimeVersionConfig: { runtimeVersionArn: 'arn:aws:lambda:us-east-1::runtime:synthetic' },
+  loggingConfig: { logFormat: 'Text', logGroup: `/aws/lambda/${name}` } });
+const s3Data = { SignatureVersion: 'SigV4', CipherSuite: 'TLS_AES_128_GCM_SHA256', bytesTransferredIn: 100, startTime: 1800000000000,
+  AuthenticationMethod: 'AuthHeader', endTime: 1800000000080, 'x-amz-id-2': 'c3ludGhldGljLWFtei1pZC0y', httpStatusCode: 200,
+  bytesTransferredOut: 0 };
+const s3Host = 'synthetic-bucket.s3.us-east-1.amazonaws.com';
+export const ACTIVITY_EVENTS = Object.freeze({
+  lambda: () => ({ eventName: 'UpdateFunctionConfiguration20150331v2', eventSource: 'lambda.amazonaws.com',
+    requestParameters: { functionName: 'AWS_PRIVATE_FUNCTION_SENTINEL', timeout: 10 } }),
+  network: event => ({ eventName: 'AuthorizeSecurityGroupIngress', eventSource: 'ec2.amazonaws.com',
+    requestParameters: { groupId: 'sg-0123456789abcdef0', ipPermissions: { items: [
+      { ipProtocol: 'tcp', fromPort: 443, toPort: 443, ipRanges: { items: [{ cidrIp: '192.0.2.0/24' }] } },
+    ] } },
+    responseElements: { _return: true, requestId: event.eventID, securityGroupRuleSet: { items: [
+      { securityGroupRuleId: 'sgr-0123456789abcdef0', groupId: 'sg-0123456789abcdef0', isEgress: false,
+        ipProtocol: 'tcp', fromPort: 443, toPort: 443, cidrIpv4: '192.0.2.0/24' },
+    ] } } }),
+  'iam-attach': () => ({ eventName: 'AttachRolePolicy', eventSource: 'iam.amazonaws.com',
+    requestParameters: { roleName: 'synthetic-role', policyArn: 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole' } }),
+  'lambda-code': () => ({ eventName: 'UpdateFunctionCode20150331v2', eventSource: 'lambda.amazonaws.com',
+    requestParameters: { functionName: 'synthetic-function', publish: false, dryRun: false },
+    responseElements: lambdaResponse('synthetic-function') }),
+  's3-versioning': () => ({ eventName: 'PutBucketVersioning', eventSource: 's3.amazonaws.com',
+    requestParameters: { bucketName: 'synthetic-bucket', Host: s3Host, versioning: '',
+      VersioningConfiguration: { Status: 'Enabled', xmlns: 'http://s3.amazonaws.com/doc/2006-03-01/' } },
+    additionalEventData: { ...s3Data } }),
+  's3-lifecycle': () => ({ eventName: 'PutBucketLifecycle', eventSource: 's3.amazonaws.com',
+    requestParameters: { lifecycle: '', bucketName: 'synthetic-bucket', LifecycleConfiguration: {
+      xmlns: 'http://s3.amazonaws.com/doc/2006-03-01/', Rule: { Status: 'Enabled', Filter: { Prefix: '' },
+        NoncurrentVersionExpiration: { NoncurrentDays: 7 }, ID: 'expire-old' } }, Host: s3Host },
+    additionalEventData: { ...s3Data, turnAroundTime: 80 } }),
+  changeset: () => ({ eventName: 'CreateChangeSet', eventSource: 'cloudformation.amazonaws.com',
+    requestParameters: { changeSetName: 'synthetic-change-set', stackName: 'synthetic-stack' },
+    responseElements: { id: 'arn:aws:cloudformation:us-east-1:111122223333:changeSet/synthetic-change-set/cccccccc-cccc-4ccc-8ccc-cccccccccccc' } }),
+  ecs: () => ({ eventName: 'RegisterTaskDefinition', eventSource: 'ecs.amazonaws.com',
+    requestParameters: { family: 'synthetic-family', networkMode: 'awsvpc',
+      containerDefinitions: [{ name: 'app', image: 'public.ecr.aws/docker/library/busybox:latest', cpu: 0, essential: true }],
+      requiresCompatibilities: ['FARGATE'], cpu: '256', memory: '512', dryrun: false },
+    responseElements: { taskDefinition: { taskDefinitionArn: 'arn:aws:ecs:us-east-1:111122223333:task-definition/synthetic-family:2',
+      containerDefinitions: [{ name: 'app', image: 'public.ecr.aws/docker/library/busybox:latest', cpu: 0, portMappings: [],
+        essential: true, environment: 'HIDDEN_DUE_TO_SECURITY_REASONS', mountPoints: [], volumesFrom: [], systemControls: [] }],
+      family: 'synthetic-family', networkMode: 'awsvpc', revision: 2, volumes: [], status: 'ACTIVE',
+      requiresAttributes: [{ name: 'com.amazonaws.ecs.capability.docker-remote-api.1.18' }, { name: 'ecs.capability.task-eni' }],
+      placementConstraints: [], compatibilities: ['EC2', 'FARGATE', 'MANAGED_INSTANCES'], requiresCompatibilities: ['FARGATE'],
+      cpu: '256', memory: '512', registeredAt: 'Oct 29, 2026, 8:00 AM', registeredBy: 'arn:aws:iam::111122223333:user/synthetic' } } }),
+  ttl: () => ({ eventName: 'UpdateTimeToLive', eventSource: 'dynamodb.amazonaws.com', apiVersion: '2012-08-10',
+    requestParameters: { tableName: 'synthetic-table', timeToLiveSpecification: { attributeName: 'expiresAt', enabled: true } },
+    responseElements: { timeToLiveSpecification: { attributeName: 'expiresAt', enabled: true } } }),
+  alarm: () => ({ eventName: 'PutMetricAlarm', eventSource: 'monitoring.amazonaws.com',
+    requestParameters: { alarmName: 'synthetic-alarm', metricName: 'Errors', namespace: 'AWS/Lambda', statistic: 'Sum',
+      dimensions: [{ name: 'FunctionName', value: 'synthetic-function' }], period: 300, evaluationPeriods: 1, threshold: 100.5,
+      comparisonOperator: 'GreaterThanThreshold' } }),
+});
+
+/** Fixture family of each catalog operation id: 'iam' is eventFixture() itself, the rest are ACTIVITY_EVENTS keys. */
+export const OPERATION_FAMILIES = Object.freeze({ 'iam-role-trust-update': 'iam', 'lambda-configuration-update': 'lambda',
+  'security-group-ingress': 'network', 'iam-role-policy-attach': 'iam-attach', 'lambda-code-update': 'lambda-code',
+  's3-bucket-versioning': 's3-versioning', 's3-bucket-lifecycle': 's3-lifecycle', 'cloudformation-change-set': 'changeset',
+  'ecs-task-definition': 'ecs', 'dynamodb-ttl-update': 'ttl', 'cloudwatch-metric-alarm': 'alarm' });
+
 export function activityEventFixture(activity, options = {}) {
+  if (!Object.hasOwn(ACTIVITY_EVENTS, activity)) throw new Error('SYNTHETIC_ACTIVITY_UNKNOWN');
   return eventFixture({ ...options, mutateEvent(event) {
-    if (activity === 'lambda') {
-      event.eventName = 'UpdateFunctionConfiguration20150331v2';
-      event.eventSource = 'lambda.amazonaws.com';
-      event.requestParameters = { functionName: 'AWS_PRIVATE_FUNCTION_SENTINEL', timeout: 10 };
-    } else {
-      event.eventName = 'AuthorizeSecurityGroupIngress';
-      event.eventSource = 'ec2.amazonaws.com';
-      event.requestParameters = { groupId: 'sg-0123456789abcdef0', ipPermissions: { items: [
-        { ipProtocol: 'tcp', fromPort: 443, toPort: 443, ipRanges: { items: [{ cidrIp: '192.0.2.0/24' }] } },
-      ] } };
-      event.responseElements = { _return: true, requestId: event.eventID, securityGroupRuleSet: { items: [
-        { securityGroupRuleId: 'sgr-0123456789abcdef0', groupId: 'sg-0123456789abcdef0', isEgress: false,
-          ipProtocol: 'tcp', fromPort: 443, toPort: 443, cidrIpv4: '192.0.2.0/24' },
-      ] } };
-    }
+    Object.assign(event, ACTIVITY_EVENTS[activity](event));
     options.mutateEvent?.(event);
   }, mutateRow(row) { const event = JSON.parse(row.CloudTrailEvent); row.EventName = event.eventName; row.EventSource = event.eventSource; options.mutateRow?.(row); } });
 }
