@@ -1,5 +1,5 @@
 import { PrivateWitnessRun } from './gcpPrivateWitness';
-import { sanitizeAwsPrivateResult, validateAwsAttempt, createAwsLocalSession, type AwsPrivateAttempt, type AwsPrivateModule, type AwsCapture } from '../aws-private/browser-client.mjs';
+import { AWS_SESSION_STEPS, sanitizeAwsPrivateResult, validateAwsAttempt, createAwsLocalSession, type AwsPrivateAttempt, type AwsPrivateModule, type AwsCapture } from '../aws-private/browser-client.mjs';
 
 export const AWS_PRIVATE_TIMEOUT_MS = 13 * 60 * 1000;
 
@@ -38,9 +38,9 @@ export class AwsPrivateWitnessRun extends PrivateWitnessRun {
     const value = await capture();
     try {
       const requests = await this.collection.prepare(value);
-      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > 4) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
+      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > AWS_SESSION_STEPS.length) throw new Error('AWS_PRIVATE_COLLECTION_FAILED');
       this.collectionSteps.splice(0, this.collectionSteps.length, ...requests.map((_, index) => ({
-        step: index ? `E${index - 1}` : 'identity', host: index ? 'cloudtrail.us-east-1.amazonaws.com' : 'iam.amazonaws.com',
+        step: AWS_SESSION_STEPS[index], host: index ? 'cloudtrail.us-east-1.amazonaws.com' : 'iam.amazonaws.com',
       })));
       return requests;
     } catch (error) {

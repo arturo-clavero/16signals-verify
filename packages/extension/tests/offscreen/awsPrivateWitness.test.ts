@@ -132,8 +132,8 @@ it('cancellation settles a hung module and erases its witness copies', async () 
 
 
 it('uses the locally discovered group count and rejects truncated results', async () => {
-  const allIds = [...ids, '44444444-4444-4444-8444-444444444444', '55555555-5555-4555-8555-555555555555'];
-  for (const count of [2, 3, 4]) {
+  const allIds = [...ids, ...Array.from({ length: 8 }, (_, index) => `4444444${index}-4444-4444-8444-444444444444`)];
+  for (let count = 2; count <= awsClient.AWS_SESSION_STEPS.length; count++) {
     const prepareCollection = vi.fn().mockResolvedValue(Array.from({ length: count }, () => ({})));
     vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ prepare: prepareCollection, clear: vi.fn() } as never);
     for (const truncated of [false, ...(count > 2 ? [true] : [])]) {
@@ -152,7 +152,7 @@ it('uses the locally discovered group count and rejects truncated results', asyn
 });
 
 it('rejects an invalid discovered count and erases captured credentials', async () => {
-  for (const count of [0, 1, 5]) {
+  for (const count of [0, 1, awsClient.AWS_SESSION_STEPS.length + 1]) {
     vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({
       prepare: vi.fn().mockResolvedValue(Array(count).fill({})), clear: vi.fn(),
     } as never);

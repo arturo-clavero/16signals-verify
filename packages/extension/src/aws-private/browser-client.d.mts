@@ -14,6 +14,8 @@ export interface AwsPrivateModule extends PrivateProofModule {
   getRevealPlan(session: Readonly<GcpPrivateSession>, transcripts: { sent: Uint8Array; recv: Uint8Array }): GcpPrivateRevealPlan;
 }
 export function validateAwsAttempt(value: unknown, now?: number): void;
+/** identity, then E0.. up to the per-run event-session cap. */
+export const AWS_SESSION_STEPS: readonly string[];
 export interface AwsCredentials { accessKeyId: string; secretAccessKey: string; sessionToken: string; expiration: string }
 export interface AwsCapture { credentials: AwsCredentials; accountId?: string }
 export interface AwsSignedRequest { url: string; method: string; headers: Record<string, string>; body: string }
