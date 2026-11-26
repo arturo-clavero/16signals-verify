@@ -95,14 +95,15 @@ All commands run from the repository root. Ports: the demo on 18474, the verifie
 
    `DEMO_HOST=0.0.0.0` lets the verifier container reach `/webhook`. Optional: `DEMO_PORT` (default 18474),
    `VERIFIER_URL` (default `http://localhost:17047`), `DID_FILE` (the verifier's DID document from a file instead of
-   `VERIFIER_URL`). To have the server re-run the zero-knowledge proofs too, install the optional verifier library
-   once: `cd packages/proof-check && npm ci`.
+   `VERIFIER_URL`). The server also re-runs the zero-knowledge proofs with `@aztec/bb.js`, an optional dependency
+   that the root `npm ci` of step 3 installs. Do not run `npm ci` inside `packages/proof-check`: it is a workspace
+   of this repository, and that replaces the root `node_modules` with its few dependencies.
 
 6. **Prove.** Open `http://localhost:18474/`. Section 1 lists the extension's built-in plugins. Pick a provider
    (Google Cloud: also enter the project id and a window), click **Prove**, and sign in in the window the extension
-   opens; keep that window open. The progress box shows the extension's acknowledgement, the plugin's steps, one line
-   per verifier webhook ("signed receipt"), and the prover's progress. The proofs are made in the browser, which takes
-   a few minutes.
+   opens; keep that window open. The progress box shows the extension's acknowledgement, the TLS prover's progress,
+   one line per verifier webhook ("signed receipt"), then one line per zero-knowledge proof made in the browser (the
+   "at most" figure is a cap, not the count to expect). A run takes a few minutes (AWS: about 5).
 
 7. **Check.** When the run ends, section 4 shows the package's check lines (`receipt-signature`, `server-name` and
    `signed-root` must be `ok`). Click **Download package**, then either open the verify page (the link; drop the file
@@ -110,7 +111,7 @@ All commands run from the repository root. Ports: the demo on 18474, the verifie
 
    ```sh
    curl -s http://localhost:18474/did.json > did.json
-   node packages/proof-check/cli.mjs --proof gcp-package.json --did did.json --claim '<the claim shown>'
+   node packages/proof-check/cli.mjs --proof aws-package.json --did did.json --claim '<the claim shown>'
    ```
 
    Without `@aztec/bb.js` installed, `zk-proofs` is not run (`--`) and the result is `partial`; the verify page always
