@@ -21,10 +21,17 @@ const wallet = () => {
 
 const [command, arg] = process.argv.slice(2);
 if (command === 'register') {
-  const hash = await wallet().writeContract({ address: config.schemaRegistry, abi: REGISTRY_ABI, functionName: 'register',
-    args: [SCHEMA, zeroAddress, true] });
-  await client.waitForTransactionReceipt({ hash });
-  console.log(JSON.stringify({ schemaUid: SCHEMA_UID, tx: `${config.explorer}/tx/${hash}` }));
+  const existing = await client.readContract({ address: config.schemaRegistry, abi: REGISTRY_ABI, functionName: 'getSchema',
+    args: [SCHEMA_UID] });
+  if (existing.uid.toLowerCase() === SCHEMA_UID) {
+    console.log(JSON.stringify({ schemaUid: SCHEMA_UID, registered: 'already' }));
+  } else {
+    const hash = await wallet().writeContract({ address: config.schemaRegistry, abi: REGISTRY_ABI, functionName: 'register',
+      args: [SCHEMA, zeroAddress, true] });
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`register reverted: ${config.explorer}/tx/${hash}`);
+    console.log(JSON.stringify({ schemaUid: SCHEMA_UID, tx: `${config.explorer}/tx/${hash}` }));
+  }
 } else if (command === 'publish' && arg) {
   const parsed = JSON.parse(await readFile(arg, 'utf8'));
   const { uid, txHash } = await publishAnchor({ signed: parsed.attestation ?? parsed, wallet: wallet(), client, network });

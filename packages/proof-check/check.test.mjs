@@ -108,4 +108,22 @@ test('the cli prints one line per check and exits 0, 1 or 2', async t => {
   assert.equal((await run(join(dir, 'missing.json'))).code, 2);
   assert.equal((await run()).code, 2);
   assert.equal((await run(bundleFile, '--verbose')).code, 2);
+
+  // --uid reads the attestation from a bnb registry module (a fake here; the real one reads BAS).
+  const uid = `0x${'a'.repeat(64)}`;
+  await writeFile(join(dir, 'fake-bnb.mjs'), `const signed = ${JSON.stringify(signed)};
+export const NETWORKS = { 'bsc-testnet': { rpcUrl: 'http://127.0.0.1:9' } };
+export const bnbRegistry = ({ uid }) => ({ anchor: async () => (uid === '${uid}' ? { attestation: signed } : null),
+  findAttestations: async () => (uid === '${uid}' ? [signed] : []), findBundle: async () => null });`);
+  const bnbConfig = await file('bnb-config.json', { providers: [descriptor], keys: './keys.json',
+    registries: [{ type: 'bnb', module: './fake-bnb.mjs' }] });
+  const byUid = (...args) => new Promise(resolve => execFile(process.execPath, [cli, '--uid', ...args, '--config', bnbConfig,
+    '--now', new Date(NOW).toISOString()], (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
+  const anchored = await byUid(uid, '--bundle', bundleFile);
+  assert.equal(anchored.code, 0, anchored.stderr);
+  assert.match(anchored.stdout, /\nverified [0-9a-f]{64} example:value-7\n$/);
+  assert.match((await byUid(uid)).stdout, /FAIL Public proof bundle not found/);
+  assert.equal((await byUid(`0x${'b'.repeat(64)}`)).code, 2);
+  assert.equal((await run('--uid', uid)).code, 2);  // the config has no bnb registry
+  assert.equal((await byUid(uid, await file('signed.json', signed))).code, 2);
 });

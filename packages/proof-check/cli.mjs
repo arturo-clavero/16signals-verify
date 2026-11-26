@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Usage: proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
+//        proof-check --uid <BAS uid> [--network bsc] [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
 //        proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc]]
 //                    [--keys keys.json] [--config config.json] [--now <ISO time>]
 // The attestation file holds a signed attestation, or { attestation, bundle }. Providers (and keys, unless --keys)
@@ -14,6 +15,7 @@ import { checkPackage, packageLines } from './package/check-package.mjs';
 import { closeZk } from './package/zk.mjs';
 
 const USAGE = `usage: proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
+       proof-check --uid <BAS uid> [--network bsc|bsc-testnet] [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
        proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc|bsc-testnet]]
                    [--keys keys.json] [--config config.json] [--now <ISO time>]`;
 const DEFAULT_CONFIG = new URL('../../verify/verify.config.json', import.meta.url);
@@ -28,7 +30,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i].startsWith('-')) exit(2, USAGE);
   else positional.push(args[i]);
 }
-if (positional.length !== (options.proof ? 0 : 1)) exit(2, USAGE);
+if (positional.length !== (options.proof || options.uid ? 0 : 1)) exit(2, USAGE);
 
 let input, config;
 try {
@@ -41,6 +43,10 @@ try {
     if (!dropped.package) throw new Error('expected a proof package');
     const dids = [...(keys?.dids ?? []), ...(options.did ? [await readJson(options.did)] : [])];
     input = { pkg: dropped.package, providers: config.providers, keys: { ...keys, dids }, claim: options.claim, now };
+  } else if (options.uid) {
+    // The attestation comes from the BAS record; a bundle file can add what is off chain.
+    const dropped = options.bundle ? { bundle: JSON.parse(await readFile(options.bundle, 'utf8')) } : {};
+    input = { dropped, providers: config.providers, keys, now };
   } else {
     const dropped = parseDropped(await readFile(positional[0], 'utf8'));
     if (!dropped.attestation) throw new Error('expected a signed attestation');
@@ -77,7 +83,15 @@ if (options.proof) {
   process.exitCode = result.status === 'verified' ? 0 : result.status === 'failed' ? 1 : 2;
 } else {
   let result;
-  try { result = await verifyCommitment(input); } catch (error) { exit(2, `proof-check: ${error.message}`); }
+  try {
+    if (options.uid) {
+      const registries = await bnbRegistries();
+      const anchor = await registries[0].anchor();
+      if (!anchor) throw new Error(`no attestation with UID ${options.uid}`);
+      Object.assign(input, { registries, commitment: anchor.attestation.commitment });
+    }
+    result = await verifyCommitment(input);
+  } catch (error) { exit(2, `proof-check: ${error.message}`); }
   for (const check of result.checks) console.log(`${check.ok ? 'ok  ' : 'FAIL'} ${check.label}${check.detail ? ` (${check.detail})` : ''}`);
   console.log(`${result.status} ${result.commitment}${result.claim ? ` ${result.claim}` : ''}`);
   process.exitCode = result.status === 'verified' ? 0 : 1;

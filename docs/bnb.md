@@ -27,6 +27,10 @@ does.
 | BSC testnet (default) | 97 | `0x6c2270298b1e6046898a322acB3Cbad6F99f7CBD` | `0x08C8b8417313fF130526862f90cd822B55002D72` |
 | BSC mainnet | 56 | `0x247Fe62d887bc9410c3848DF2f322e52DA9a51bC` | `0x5e905F77f59491F03eBB78c204986aaDEB0C6bDa` |
 
+The schema is registered on BSC testnet (registration transaction
+[`0x5eef6dc9…a705c`](https://testnet.bscscan.com/tx/0x5eef6dc955ff2a8e0322fb6ff2c67ed0dd636529721d4c7d547fd455a22a705c)).
+It is not yet registered on mainnet; `register` does it once and reports `"registered": "already"` after that.
+
 ## Publishing
 
 ```sh
@@ -45,11 +49,24 @@ gains nothing: it fails the signature check.
 
 ## Reading
 
-`verify/?uid=0x…` (or the UID field on the page). In code, `bnbRegistry({ uid, client })` from
+`verify/?uid=0x…` (or the UID field on the page), or `proof-check --uid 0x…` on the command line. In code, `bnbRegistry({ uid, client })` from
 [`packages/bnb-anchor/anchor.mjs`](../packages/bnb-anchor/anchor.mjs) is a registry for `verifyCommitment` in
 [`packages/proof-check`](../packages/proof-check); the verify page enables the UID lookup through the `bnb` entry in
 `verify/verify.config.json`. `readAnchor` rejects records of another schema, revoked records, and
 records whose indexed fields disagree with the signed attestation they carry.
+
+### Example
+
+A test record on BSC testnet anyone can read:
+
+```sh
+node packages/bnb-anchor/cli.mjs read 0x6805e4278836ac8ce88a2e7ee7e25992e879683ec58b401faefff7660547feb7
+```
+
+It anchors an attestation over a synthetic Google Cloud bundle (the one `verify/verify.test.mjs` builds), signed with
+a throwaway test key that is not in `verify/keys.json`, so the page and `proof-check --uid` read it and report
+`unknown-key`: it demonstrates the lookup, not a trusted claim. The record is in transaction
+[`0x0e0083eb…f687c60`](https://testnet.bscscan.com/tx/0x0e0083eb77fa99840f133f00d1e37184177e9b7fefb58e8d567594616f687c60).
 
 ## Trade-offs
 
