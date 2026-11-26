@@ -254,7 +254,9 @@ Assumptions:
 `npm run build:fork` runs [`fork/build.sh`](../fork/build.sh). It builds the working tree in place: private-proof
 circuits and workers, the pinned WASM prover, upstream's webpack build, the built-in plugins,
 `THIRD_PARTY_NOTICES.txt` and the manifest. Output: `fork/out/extension` (unpacked MV3), plus
-`fork/out/extension-id.txt` when a key is given. All variables are optional for a development build.
+`fork/out/extension-id.txt` when a key is given. Settings come from `fork/config.env` (a copy of
+[`fork/config.example.env`](../fork/config.example.env); `FORK_CONFIG=<file>` picks another file) and from environment
+variables, which override the file. All are optional for a development build.
 
 | Variable | Meaning |
 | --- | --- |
@@ -266,12 +268,39 @@ circuits and workers, the pinned WASM prover, upstream's webpack build, the buil
 | `FORK_ICON_DIR` | Directory with `icon-16.png`, `icon-34.png`, `icon-48.png`, `icon-128.png` |
 | `FORK_NAVIGATE_URLS` | Comma-separated exact https URLs (no query or fragment) a plugin may send its own window to. Default none |
 | `FORK_EXTRA_HOSTS` | Comma-separated extra host match patterns (`https://host/path*`) for content scripts and host access, for example for those navigation targets. Default none |
+| `FORK_CF_OAUTH_CLIENT_ID` | Your public Cloudflare OAuth client id (PKCE, no secret; redirect URI `https://<extension id>.chromiumapp.org/`). Required with `FORK_KEY_FILE` when the plugins include `cloudflare-private-work` |
 | `GCP_NOIR_NARGO` | The pinned Noir compiler (default: `nargo` on `PATH`) |
 
 Host access is fixed to the GCP, AWS and Cloudflare (`dash.cloudflare.com`, `api.cloudflare.com`) console and API hosts the private proofs use, the product origins, and
 `FORK_EXTRA_HOSTS`. The verifier is reached by WebSocket from the offscreen document and needs no host permission.
 The build checks the final manifest permissions (`identity`, `offscreen`, `webRequest` only; `identity` is for the
 Cloudflare OAuth sign-in, whose client id comes from `FORK_CF_OAUTH_CLIENT_ID`).
+
+### Build for your site
+
+1. `cp fork/config.example.env fork/config.env` and set at least `FORK_PRODUCT_ORIGINS` (your page's origin),
+   `FORK_KEY_FILE`, `FORK_PLUGIN_DIR` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID`. Leave it empty for a local
+   development build (pages on `http://localhost:5173` or `:5175`).
+2. `npm ci && npm run build:fork`. A production build stops with a message when a required value is missing.
+3. Load `fork/out/extension` unpacked (`chrome://extensions`, Developer mode, Load unpacked).
+4. From your page (an allowed origin, top frame), call `window.tlsn.runBuiltIn({...})`, which posts this message:
+
+```js
+window.postMessage({ type: 'TLSN_RUN_BUILTIN', payload: {
+  pluginId: 'gcp-work',      // or 'aws-private-work', 'cloudflare-private-work'
+  fingerprint,               // sha256 of the packaged bundle, from window.tlsn.builtInPlugins
+  verifierUrl, proxyUrl,     // your TLSNotary verifier and its proxy for this run
+  params: JSON.stringify(params), // the plugin's parameters
+  requestId,                 // your id; every reply carries it
+  sessionData,               // optional, string values
+} }, window.location.origin);
+```
+
+Replies arrive as window messages with the same `requestId`: `TLSN_RUN_BUILTIN_ACK` once the extension has taken
+a private run, `TLSN_PLUGIN_PROGRESS` and `TLSN_PROVE_PROGRESS` while it runs, then
+`TLSN_RUN_BUILTIN_RESPONSE` with `{ success: true, result }` or `{ success: false, error }`. `runBuiltIn()` resolves
+with `result` or rejects with `error`. With no acknowledgement within 10 seconds, assume the extension is missing or
+was reloaded.
 
 ## Repository layout
 

@@ -4,7 +4,8 @@
 # Builds the working tree in place: nothing is cloned, reset or patched. Steps: the GCP and AWS private proof
 # circuits and browser workers (private-proof/), the pinned TLSNotary WASM prover (core/), the QuickJS handle
 # repair, upstream's webpack build, the built-in plugins, THIRD_PARTY_NOTICES.txt and the manifest.
-# Environment, all optional for a dev build:
+# Settings come from fork/config.env (copy fork/config.example.env, which documents each one; FORK_CONFIG=<file>
+# picks another file) and from the environment, which overrides the file. All optional for a dev build:
 #   FORK_NAME             manifest name (default "TLSN Extension (dev)", "TLSN Extension" with FORK_KEY_FILE)
 #   FORK_DESCRIPTION      manifest description, at most 132 characters
 #   FORK_ICON_DIR         directory with icon-16.png, icon-34.png, icon-48.png and icon-128.png (default: upstream's)
@@ -18,6 +19,8 @@
 #                         window to (e.g. an account switcher); default none
 #   FORK_EXTRA_HOSTS      comma-separated extra host match patterns (https://host/path*) for content scripts and
 #                         host access, e.g. for those navigation targets; default none
+#   FORK_CF_OAUTH_CLIENT_ID  your public Cloudflare OAuth client id (required in a production build that packages
+#                         cloudflare-private-work; without it the Cloudflare check cannot sign in)
 #   GCP_NOIR_NARGO        the pinned Noir compiler (default: nargo on PATH)
 # One heavy step at a time: npm ci only where node_modules is missing.
 set -euo pipefail
@@ -28,6 +31,25 @@ AWS="$ROOT/private-proof/aws"
 CF="$ROOT/private-proof/cloudflare"
 CORE="$ROOT/core"
 WORK="$HERE/.work"; OUT="$HERE/out"
+
+# Settings file: KEY=value lines (no shell code is run), only the settings above; an environment variable wins.
+# Relative paths in the file are relative to the repository root.
+CONFIG="${FORK_CONFIG:-$HERE/config.env}"
+if [ -n "${FORK_CONFIG:-}" ] && [ ! -f "$CONFIG" ]; then echo "FORK_CONFIG not found: $CONFIG" >&2; exit 1; fi
+if [ -f "$CONFIG" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ "$line" =~ ^(FORK_(NAME|DESCRIPTION|ICON_DIR|KEY_FILE|PRODUCT_ORIGINS|PLUGIN_DIR|NAVIGATE_URLS|EXTRA_HOSTS|CF_OAUTH_CLIENT_ID)|GCP_NOIR_NARGO)=(.*)$ ]] \
+      || { echo "$CONFIG: not a known KEY=value setting: $line" >&2; exit 1; }
+    key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[3]}"
+    [[ "$value" =~ ^\"(.*)\"$ ]] && value="${BASH_REMATCH[1]}"
+    [ -n "$value" ] && [ -z "${!key+set}" ] || continue
+    case "$key" in FORK_KEY_FILE|FORK_PLUGIN_DIR|FORK_ICON_DIR) [[ "$value" = /* ]] || value="$ROOT/$value" ;; esac
+    export "$key=$value"
+  done <"$CONFIG"
+  echo "settings: $CONFIG (environment variables override it)"
+fi
 
 for f in "$HERE/THIRD_PARTY_NOTICES.txt" "$HERE/third-party/wasm-crates.json" "$HERE/third-party/Apache-2.0.txt" \
   "$CORE/VERSION" "$CORE/prepare-core.sh" "$GCP/package.json" "$AWS/package.json"; do
@@ -88,6 +110,12 @@ fi
 if [ -z "$PLUGIN_DIR" ]; then
   [ "$PRODUCTION" = 0 ] || { echo "a production build needs its built-in plugins: set FORK_PLUGIN_DIR to the built bundles" >&2; exit 1; }
   echo "warning: no FORK_PLUGIN_DIR; the extension will have no built-in plugin (nothing can run)" >&2
+fi
+CF_CLIENT_ID="${FORK_CF_OAUTH_CLIENT_ID:-}"
+if [ -n "$CF_CLIENT_ID" ]; then
+  [[ "$CF_CLIENT_ID" =~ ^[A-Za-z0-9_-]{16,128}$ ]] || { echo "FORK_CF_OAUTH_CLIENT_ID is not an OAuth client id: '$CF_CLIENT_ID'" >&2; exit 1; }
+elif [ "$PRODUCTION" = 1 ] && [ -f "$PLUGIN_DIR/cloudflare-private-work.js" ]; then
+  echo "a production build with cloudflare-private-work needs FORK_CF_OAUTH_CLIENT_ID (your public Cloudflare OAuth client id)" >&2; exit 1
 fi
 
 mkdir -p "$WORK"
