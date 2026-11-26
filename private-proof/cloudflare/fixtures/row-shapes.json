@@ -1,0 +1,1038 @@
+{
+  "queues/consumers create success via oauth [user]": {
+    "bytes": [
+      1108,
+      1108
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:23>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:92>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:32>",
+        "product": "queues",
+        "request": {
+          "script_name": "<string:17>",
+          "settings": {
+            "batch_size": "<number>"
+          },
+          "type": "<string:6>"
+        },
+        "response": {
+          "consumer_id": "<string:32>",
+          "created_on": "<string:27>",
+          "dead_letter_queue": "<string:0>",
+          "queue_name": "<string:18>",
+          "script_name": "<string:17>",
+          "settings": {
+            "batch_size": "<number>",
+            "max_retries": "<number>",
+            "max_wait_time_ms": "<number>",
+            "retry_delay": "<number>"
+          },
+          "type": "<string:6>"
+        },
+        "scope": "accounts",
+        "type": "consumers"
+      }
+    }
+  },
+  "workers/scripts.subdomain create success via oauth [user]": {
+    "bytes": [
+      799,
+      799
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:30>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:86>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "request": {
+          "enabled": "<boolean>"
+        },
+        "response": {
+          "enabled": "<boolean>",
+          "previews_enabled": "<boolean>"
+        },
+        "scope": "accounts",
+        "type": "scripts.subdomain"
+      }
+    }
+  },
+  "workers/scripts update success via oauth [user]": {
+    "bytes": [
+      903,
+      937
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:13>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:76>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "response": {
+          "compatibility_date": "<string:10>",
+          "created_on": "<string:27>",
+          "has_assets": "<boolean>",
+          "has_modules": "<boolean>",
+          "id": "<string:17>",
+          "logpush": "<boolean>",
+          "modified_on": "<string:27>",
+          "startup_time_ms": "<number>",
+          "usage_model": "<string:8>"
+        },
+        "scope": "accounts",
+        "type": "scripts"
+      }
+    }
+  },
+  "workers/subdomain update success via dash [user]": {
+    "bytes": [
+      822,
+      822
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:26>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "dash",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:60>",
+        "user_agent": "<string:101>"
+      },
+      "resource": {
+        "product": "workers",
+        "request": {
+          "subdomain": "<string:15>"
+        },
+        "response": {
+          "subdomain": "<string:15>"
+        },
+        "scope": "accounts",
+        "type": "subdomain"
+      }
+    }
+  },
+  "secrets_store/stores.secrets create success via oauth [user]": {
+    "bytes": [
+      939,
+      939
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:15>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:104>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:32>",
+        "product": "secrets_store",
+        "response": [
+          {
+            "created": "<string:27>",
+            "id": "<string:32>",
+            "modified": "<string:27>",
+            "status": "<string:7>",
+            "store_id": "<string:32>"
+          }
+        ],
+        "scope": "accounts",
+        "type": "stores.secrets"
+      }
+    }
+  },
+  "storage/kv.namespaces.values update success via oauth [user]": {
+    "bytes": [
+      741,
+      741
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:45>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:114>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:32>",
+        "product": "storage",
+        "scope": "accounts",
+        "type": "kv.namespaces.values"
+      }
+    }
+  },
+  "vectorize/indexes create success via oauth [user]": {
+    "bytes": [
+      738,
+      738
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:22>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:63>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "product": "vectorize",
+        "request": {
+          "config": {
+            "dimensions": "<number>",
+            "metric": "<string:6>"
+          },
+          "name": "<string:18>"
+        },
+        "scope": "accounts",
+        "type": "indexes"
+      }
+    }
+  },
+  "queues/undefined create success via oauth [user]": {
+    "bytes": [
+      900,
+      900
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:12>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:49>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "product": "queues",
+        "request": {
+          "queue_name": "<string:18>"
+        },
+        "response": {
+          "created_on": "<string:27>",
+          "modified_on": "<string:27>",
+          "queue_id": "<string:32>",
+          "queue_name": "<string:18>",
+          "settings": {
+            "delivery_delay": "<number>",
+            "message_retention_period": "<number>"
+          }
+        },
+        "scope": "accounts"
+      }
+    }
+  },
+  "oauth_clients/undefined create success via dash [user]": {
+    "bytes": [
+      1076,
+      1099
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:19>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "dash",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:56>",
+        "user_agent": "<string:101>"
+      },
+      "resource": {
+        "product": "oauth_clients",
+        "request": {
+          "client_name": "<string:15>",
+          "client_uri": "<string:0>",
+          "logo_uri": "<string:0>",
+          "policy_uri": "<string:0>",
+          "token_endpoint_auth_method": "<string:4>",
+          "tos_uri": "<string:0>"
+        },
+        "response": {
+          "client_id": "<string:32>",
+          "client_name": "<string:15>",
+          "created_at": "<string:20>",
+          "token_endpoint_auth_method": "<string:4>",
+          "updated_at": "<string:20>",
+          "visibility": "<string:7>"
+        },
+        "scope": "accounts"
+      }
+    }
+  },
+  "workers/scripts.script-settings update success via oauth [user]": {
+    "bytes": [
+      803,
+      803
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:28>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:5>",
+        "status_code": "<number>",
+        "uri": "<string:92>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "request": {
+          "observability": {
+            "enabled": "<boolean>"
+          }
+        },
+        "response": {
+          "logpush": "<boolean>"
+        },
+        "scope": "accounts",
+        "type": "scripts.script-settings"
+      }
+    }
+  },
+  "workers/scripts.deployments create success via oauth [user]": {
+    "bytes": [
+      892,
+      892
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:24>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:88>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "request": {
+          "strategy": "<string:10>",
+          "versions": [
+            {
+              "percentage": "<number>",
+              "version_id": "<string:36>"
+            }
+          ]
+        },
+        "response": {
+          "id": "<string:36>"
+        },
+        "scope": "accounts",
+        "type": "scripts.deployments"
+      }
+    }
+  },
+  "workers/scripts.versions create success via oauth [user]": {
+    "bytes": [
+      1402,
+      1402
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:14>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:85>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "response": {
+          "id": "<string:36>",
+          "metadata": {
+            "author_email": "<string:25>",
+            "author_id": "<string:32>",
+            "created_on": "<string:27>",
+            "modified_on": "<string:27>",
+            "source": "<string:8>"
+          },
+          "number": "<number>",
+          "resources": {
+            "bindings": [
+              {
+                "database_id": "<string:36>",
+                "id": "<string:36>",
+                "name": "<string:2>"
+              },
+              {
+                "name": "<string:7>",
+                "namespace_id": "<string:32>"
+              }
+            ],
+            "script": {
+              "etag": "<string:64>",
+              "last_deployed_from": "<string:8>"
+            },
+            "script_runtime": {
+              "compatibility_date": "<string:10>",
+              "usage_model": "<string:8>"
+            }
+          }
+        },
+        "scope": "accounts",
+        "type": "scripts.versions"
+      }
+    }
+  },
+  "workers/scripts.secrets update success via oauth [user]": {
+    "bytes": [
+      767,
+      767
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:31>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:84>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workers",
+        "request": {
+          "name": "<string:11>",
+          "type": "<string:11>"
+        },
+        "scope": "accounts",
+        "type": "scripts.secrets"
+      }
+    }
+  },
+  "d1/database.query create success via oauth [user]": {
+    "bytes": [
+      937,
+      1174
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:17>",
+        "result": "success",
+        "time": "<string:23>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:97>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:36>",
+        "product": "d1",
+        "response": [
+          {
+            "meta": {
+              "changed_db": "<boolean>",
+              "changes": "<number>",
+              "duration": "<number>",
+              "last_row_id": "<number>",
+              "rows_read": "<number>",
+              "rows_written": "<number>",
+              "served_by_colo": "<string:3>",
+              "served_by_primary": "<boolean>",
+              "served_by_region": "<string:4>",
+              "size_after": "<number>",
+              "timings": {
+                "sql_duration_ms": "<number>"
+              }
+            }
+          },
+          {
+            "meta": {
+              "changed_db": "<boolean>",
+              "changes": "<number>",
+              "duration": "<number>",
+              "last_row_id": "<number>",
+              "rows_read": "<number>",
+              "rows_written": "<number>",
+              "served_by_colo": "<string:3>",
+              "served_by_primary": "<boolean>",
+              "served_by_region": "<string:4>",
+              "size_after": "<number>",
+              "timings": {
+                "sql_duration_ms": "<number>"
+              }
+            }
+          }
+        ],
+        "scope": "accounts",
+        "type": "database.query"
+      }
+    }
+  },
+  "d1/database create success via oauth [user]": {
+    "bytes": [
+      853,
+      853
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:18>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:54>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "product": "d1",
+        "request": {
+          "name": "<string:15>"
+        },
+        "response": {
+          "created_at": "<string:24>",
+          "file_size": "<number>",
+          "name": "<string:15>",
+          "num_tables": "<number>",
+          "read_replication": {
+            "mode": "<string:8>"
+          },
+          "uuid": "<string:36>",
+          "version": "<string:10>"
+        },
+        "scope": "accounts",
+        "type": "database"
+      }
+    }
+  },
+  "storage/kv.namespaces create success via oauth [user]": {
+    "bytes": [
+      748,
+      748
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:18>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "oauth",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:64>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "product": "storage",
+        "request": {
+          "title": "<string:7>"
+        },
+        "response": {
+          "id": "<string:32>",
+          "supports_url_encoding": "<boolean>",
+          "title": "<string:7>"
+        },
+        "scope": "accounts",
+        "type": "kv.namespaces"
+      }
+    }
+  },
+  "/tokens delete success via dash [user]": {
+    "bytes": [
+      790,
+      790
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:12>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "delete"
+      },
+      "actor": {
+        "context": "dash",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:6>",
+        "status_code": "<number>",
+        "uri": "<string:45>",
+        "user_agent": "<string:101>"
+      },
+      "resource": {
+        "id": "<string:32>",
+        "product": "",
+        "response": {
+          "id": "<string:32>"
+        },
+        "scope": "user",
+        "type": "tokens"
+      }
+    }
+  },
+  "/tokens create success via dash [user]": {
+    "bytes": [
+      1164,
+      1431
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:12>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "create"
+      },
+      "actor": {
+        "context": "dash",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:10>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:4>",
+        "status_code": "<number>",
+        "uri": "<string:12>",
+        "user_agent": "<string:101>"
+      },
+      "resource": {
+        "product": "",
+        "request": {
+          "name": "<string:27>",
+          "policies": [
+            {
+              "effect": "<string:5>",
+              "permission_groups": [
+                {
+                  "id": "<string:32>"
+                }
+              ]
+            },
+            {
+              "effect": "<string:5>",
+              "permission_groups": [
+                {
+                  "id": "<string:32>"
+                }
+              ]
+            }
+          ]
+        },
+        "response": {
+          "id": "<string:32>",
+          "issued_on": "<string:20>",
+          "modified_on": "<string:20>",
+          "name": "<string:27>",
+          "policies": [
+            {
+              "effect": "<string:5>",
+              "id": "<string:32>",
+              "permission_groups": [
+                {
+                  "id": "<string:32>",
+                  "name": "<string:21>"
+                }
+              ]
+            },
+            {
+              "effect": "<string:5>",
+              "id": "<string:32>",
+              "permission_groups": [
+                {
+                  "id": "<string:32>",
+                  "name": "<string:17>"
+                }
+              ]
+            }
+          ],
+          "status": "<string:6>",
+          "token_prefix": "<string:4>",
+          "token_suffix": "<string:4>"
+        },
+        "scope": "user",
+        "type": "tokens"
+      }
+    }
+  },
+  "workflows/undefined update success via oauth [user]": {
+    "bytes": [
+      635
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:22>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "id": "<string:32>",
+        "ip_address": "<string:14>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:70>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:17>",
+        "product": "workflows",
+        "scope": "accounts"
+      }
+    }
+  },
+  "workers/scripts.schedules update success via oauth [user]": {
+    "bytes": [
+      912
+    ],
+    "shape": {
+      "account": {
+        "id": "<string:32>",
+        "name": "<string:35>"
+      },
+      "action": {
+        "description": "<string:46>",
+        "result": "success",
+        "time": "<string:24>",
+        "type": "update"
+      },
+      "actor": {
+        "context": "oauth",
+        "email": "<string:25>",
+        "id": "<string:32>",
+        "ip_address": "<string:14>",
+        "type": "user"
+      },
+      "id": "<string:36>",
+      "raw": {
+        "cf_ray_id": "<string:16>",
+        "method": "<string:3>",
+        "status_code": "<number>",
+        "uri": "<string:90>",
+        "user_agent": "<string:16>"
+      },
+      "resource": {
+        "id": "<string:21>",
+        "product": "workers",
+        "request": [
+          {
+            "cron": "<string:9>"
+          }
+        ],
+        "response": {
+          "schedules": [
+            {
+              "created_on": "<string:27>",
+              "cron": "<string:9>",
+              "modified_on": "<string:27>"
+            }
+          ]
+        },
+        "scope": "accounts",
+        "type": "scripts.schedules"
+      }
+    }
+  }
+}

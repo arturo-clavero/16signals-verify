@@ -1,0 +1,4 @@
+circuits/**/target/
+circuits/**/Prover.toml
+.private/
+dist/
