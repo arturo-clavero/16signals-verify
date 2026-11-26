@@ -22,14 +22,19 @@ default). A looked-up record has no bundle; drop the bundle file afterwards to a
 
 Copy `verify/` and what it imports: `packages/proof-check/`, `packages/bnb-anchor/` (only if you use the UID lookup),
 and each `private-proof/<provider>/descriptor.mjs` listed in the config together with its imports (the provider's
-`generated/` pins, and for GCP, AWS and Cloudflare their `policy.mjs`, `operation-catalog.mjs` and `skill-groups.mjs`).
-Keep the relative layout, or edit the paths in `verify.config.json`.
+`generated/` pins, and for GCP, AWS and Cloudflare their `policy.mjs`, `operation-catalog.mjs`, `request.mjs` and
+`skill-groups.mjs`; the `files` list in [`private-proof/package.json`](../private-proof/package.json) is exactly that
+set). Keep the relative layout, or edit the paths in `verify.config.json` and the import map in `index.html`.
+
+The page stays a folder to copy rather than an npm package: it is static HTML with an import map and no build step, so
+a package would only move the same files into `node_modules/` where a site still has to serve them. Its checks come
+from `@16signals-verify/proof-check` and `@16signals-verify/providers`, which are packaged.
 
 Files:
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The page; an import map for `viem` (only used by the UID lookup) |
+| `index.html` | The page; an import map for `viem` and `@16signals-verify/proof-check` (only used by the UID lookup) |
 | `page.mjs` | Exports `mountVerify` |
 | `verify.config.json` | Providers, registries, trusted keys |
 | `keys.json` | The verifier public keys the page accepts |

@@ -1,4 +1,4 @@
-# @tlsn-fork/proof-check
+# @16signals-verify/proof-check
 
 Checks a signed attestation, and the public proof bundle when there is one, for any evidence type; and re-checks a
 proof package (the verifier's signed receipts behind a claim). Plain ES modules (Node 22+ and current browsers), no
@@ -8,7 +8,7 @@ only dependency, `@aztec/bb.js` (optional), is imported lazily by the zero-knowl
 ## Checking
 
 ```js
-import { verifyCommitment, describeClaim } from '@tlsn-fork/proof-check';
+import { verifyCommitment, describeClaim } from '@16signals-verify/proof-check';
 
 const result = await verifyCommitment({
   dropped: { attestation, bundle },  // from a file; or pass `commitment` and `registries` to look them up
@@ -68,7 +68,7 @@ transcript. Format v1:
 `proofHash = sha256(canonical JSON of the package)` (`packageHash`).
 
 ```js
-import { checkPackage, packageLines, closeZk } from '@tlsn-fork/proof-check';
+import { checkPackage, packageLines, closeZk } from '@16signals-verify/proof-check';
 
 const result = await checkPackage(pkg, {
   providers: [gcp, aws, cloudflare],
@@ -104,7 +104,7 @@ From the verifier's webhooks (one per TLS session, with `receipt` and `leaves`) 
 from the extension, once the provider's `verify-bundle.mjs` accepted it:
 
 ```js
-import { buildPackage, webhookRun } from '@tlsn-fork/proof-check';
+import { buildPackage, webhookRun } from '@16signals-verify/proof-check';
 
 const runs = await Promise.all(webhooks.map((payload, i) => webhookRun(payload, { zk: i === 0 ? bundle : undefined })));
 const pkg = await buildPackage({ descriptor: gcp, claim: gcp.claimFromResult(result).claim, runs, vks });
@@ -147,7 +147,7 @@ circuits used; without `claim`, the claim is not recomputed.
 }
 ```
 
-`bnbRegistry` in `@tlsn-fork/bnb-anchor` is one.
+`bnbRegistry` in `@16signals-verify/bnb-anchor` is one.
 
 **Trusted keys.** Attestations are accepted only from these keys; `id` is `verifierKeyId(publicKeyPem)`:
 
@@ -171,6 +171,13 @@ Each provider module default-exports a descriptor. Registry entries are for the 
 
 ## CLI
 
+The package is not published yet. After the release (until then, `node packages/proof-check/cli.mjs` here):
+
+```sh
+npm i -g @16signals-verify/proof-check                    # or npx -p @16signals-verify/proof-check proof-check ...
+npx -p @16signals-verify/proof-check -p @16signals-verify/bnb-anchor proof-check --uid 0x<uid>   # with the BNB lookup
+```
+
 ```sh
 proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
 proof-check --uid <BAS uid> [--network bsc] [--bundle bundle.json] [--keys keys.json] [--config config.json]
@@ -186,8 +193,10 @@ attestation through the config's `bnb` registry for the on-chain check, which al
 `--` (not run).
 
 The file holds a signed attestation or `{ attestation, bundle }`. Providers, and keys unless `--keys` is given, come
-from the config; the default is `verify/verify.config.json` in this repository. It prints one line per check and a
-summary line.
+from the config; the default is `verify/verify.config.json` in this repository, and when installed from npm the
+config in `@16signals-verify/providers` (the three built-in providers, no trusted keys: pass `--keys` or `--did`).
+Without a `bnb` registry in the config, `--uid` uses `@16signals-verify/bnb-anchor` when it is installed in the same
+project. It prints one line per check and a summary line.
 
 | Exit code | Meaning |
 | --- | --- |

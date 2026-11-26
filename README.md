@@ -50,8 +50,30 @@ proof system.
 
 ## What can another project reuse?
 
-Packages are not on npm yet. They are used from this repository (npm workspaces); npm packages are planned. The
-examples below import from the repository.
+Three npm packages are prepared but **not published yet** (publishing is pending; see
+[docs/releasing.md](docs/releasing.md)). Until then, use them from this repository (npm workspaces); the examples below
+import from the repository.
+
+| Package | Folder | What it is |
+| --- | --- | --- |
+| `@16signals-verify/proof-check` | [`packages/proof-check`](packages/proof-check) | The checks, as a library and the `proof-check` CLI |
+| `@16signals-verify/providers` | [`private-proof`](private-proof) | The GCP, AWS and Cloudflare descriptors and their pinned keys (`./gcp`, `./aws`, `./cloudflare`) |
+| `@16signals-verify/bnb-anchor` | [`packages/bnb-anchor`](packages/bnb-anchor) | Anchor attestations on BNB Chain; a proof-check registry and the `bnb-anchor` CLI |
+
+After the release, installing looks like this (these commands do not work yet):
+
+```sh
+npm i @16signals-verify/proof-check            # brings @16signals-verify/providers
+npx proof-check --proof package.json --did did.json
+```
+
+```js
+import { checkPackage, packageLines } from '@16signals-verify/proof-check';
+import providers from '@16signals-verify/providers';  // or { gcp, aws, cloudflare }
+const result = await checkPackage(pkg, { providers, keys: { keys: [], dids: [didDocument] } });
+```
+
+The verify page stays a folder to copy (see [verify/README.md](verify/README.md)).
 
 ### Verify existing AWS, GCP and Cloudflare proofs
 
@@ -181,7 +203,7 @@ A runnable version of these steps, from sign-in to a checked proof package: [exa
 6. **Optional: anchor on BNB Chain.**
 
    ```sh
-   cd packages/bnb-anchor && npm ci
+   cd packages/bnb-anchor              # after the root npm ci
    export BNB_PRIVATE_KEY=0x...        # funded account; BNB_NETWORK=bsc for mainnet (default: bsc-testnet)
    node cli.mjs register               # once per network
    node cli.mjs publish attestation.json

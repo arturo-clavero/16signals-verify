@@ -40,3 +40,19 @@ Each folder has its own tests (`npm ci && npm test`, serial, no cloud account ne
    [`verify/verify.config.json`](../verify/verify.config.json) or your own config.
 
 A provider that only needs checking, not generating, needs just the descriptor and its pinned keys.
+
+## The npm package
+
+This folder is also the `@16signals-verify/providers` package (not published yet; see
+[docs/releasing.md](../docs/releasing.md)). It ships only the checking side: each provider's `descriptor.mjs` and what
+it imports (pinned keys in `generated/`, catalogs, hosts), no circuits, prover code or tests.
+
+```js
+import providers, { gcp, aws, cloudflare } from '@16signals-verify/providers';  // or '@16signals-verify/providers/gcp'
+import { checkPackage } from '@16signals-verify/proof-check';
+const result = await checkPackage(pkg, { providers, keys: { keys: [], dids: [didDocument] } });
+```
+
+`@16signals-verify/providers/verify.config.json` lists the three descriptors with no trusted keys; it is the
+`proof-check` CLI's default config when installed from npm. The `files` list in [`package.json`](package.json) is the
+descriptors' import closure, and [`package.test.mjs`](package.test.mjs) fails when it drifts.

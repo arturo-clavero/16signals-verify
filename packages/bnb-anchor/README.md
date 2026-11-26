@@ -1,4 +1,4 @@
-# @tlsn-fork/bnb-anchor
+# @16signals-verify/bnb-anchor
 
 Anchors a signed attestation on BNB Smart Chain through the BNB Attestation Service (BAS), and reads it back. Plain ES
 module (Node 22+ and current browsers) with one dependency, `viem`. This repository deploys no contract; it registers
@@ -23,12 +23,14 @@ UID is exported as `SCHEMA_UID`.
 
 ## CLI
 
+In this repository, after the root `npm ci`, run `node cli.mjs` from this folder. Once the package is published (not
+yet), `npm i -g @16signals-verify/bnb-anchor` installs it as `bnb-anchor`:
+
 ```sh
-npm ci
-export BNB_PRIVATE_KEY=0x...          # funded account, needed for register and publish
-node cli.mjs register                 # once per network: registers the schema (no-op if it already is)
-node cli.mjs publish attestation.json # a signed attestation, or { "attestation": ..., "bundle": ... }
-node cli.mjs read 0x<uid>             # prints the anchored attestation
+export BNB_PRIVATE_KEY=0x...            # funded account, needed for register and publish
+bnb-anchor register                     # once per network: registers the schema (no-op if it already is)
+bnb-anchor publish attestation.json     # a signed attestation, or { "attestation": ..., "bundle": ... }
+bnb-anchor read 0x<uid>                 # prints the anchored attestation
 ```
 
 Environment variables the CLI reads:
@@ -43,7 +45,7 @@ Environment variables the CLI reads:
 
 ```js
 import { createPublicClient, createWalletClient, http } from 'viem';
-import { publishAnchor, readAnchor, bnbRegistry, NETWORKS } from '@tlsn-fork/bnb-anchor';
+import { publishAnchor, readAnchor, bnbRegistry, NETWORKS } from '@16signals-verify/bnb-anchor';
 
 const { uid, txHash } = await publishAnchor({ signed, wallet, client, network: 'bsc-testnet' });
 const anchor = await readAnchor({ uid, client, network: 'bsc-testnet' });  // { uid, attester, time, expired, attestation } or null
@@ -55,7 +57,7 @@ signed attestation they carry. `NETWORKS[network].rpcUrl` is the default RPC for
 ## As a proof-check registry
 
 `bnbRegistry({ uid, client, network })` returns a registry for
-[`@tlsn-fork/proof-check`](../proof-check/README.md): `findAttestations` returns the anchored attestation when its
+[`@16signals-verify/proof-check`](../proof-check/README.md): `findAttestations` returns the anchored attestation when its
 commitment matches, `findBundle` returns `null` (the bundle is not on chain), and `anchor()` returns the decoded
 record.
 
