@@ -40,7 +40,7 @@ export interface GcpPrivateProofModule extends PrivateProofModule {
   prove(witnesses: readonly GcpPrivateWitness[], signal: AbortSignal): Promise<{ proofs: GcpPrivateProof[] }>;
 }
 interface PrivateWitnessPolicy {
-  method: 'GCP_WORK' | 'AWS_ACCOUNT';
+  method: 'GCP_WORK' | 'AWS_ACCOUNT' | 'CLOUDFLARE_ACCOUNT';
   steps: readonly { step: string; host: string }[];
   nonceMac?: string;
   proveTimeoutMs: number;

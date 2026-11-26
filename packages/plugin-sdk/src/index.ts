@@ -165,6 +165,7 @@ const reportProgress = env.reportProgress;
 // window to an allowlisted exact URL (configured at build time). Undefined elsewhere.
 const navigate = env.navigate;
 const collectAwsPrivate = env.collectAwsPrivate;
+const collectCloudflarePrivate = env.collectCloudflarePrivate;
 ${processedCode};
 `;
 

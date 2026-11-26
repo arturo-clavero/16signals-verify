@@ -9,7 +9,8 @@ import { autoApprovalFor, offscreenSessionData } from '../../background/autoAppr
 import { logger } from '@tlsn/common';
 import { getStoredLogLevel } from '../../utils/logLevelStorage';
 import type { BackgroundMessage } from '../../types/messages';
-import { GCP_PRIVATE_ROUTE_TTL_MS, AWS_PRIVATE_ROUTE_TTL_MS, livePrivateRoute, takePrivateCompletion } from '../../background/gcpPrivateCompletion';
+import { GCP_PRIVATE_ROUTE_TTL_MS, AWS_PRIVATE_ROUTE_TTL_MS, CF_PRIVATE_ROUTE_TTL_MS, livePrivateRoute, takePrivateCompletion, routeProvider, type PrivateProvider } from '../../background/gcpPrivateCompletion';
+import { readCloudflareToken, cloudflareClientId } from '../../background/cloudflarePrivateAuth';
 import type { GcpPrivateRoute } from '../../background/gcpPrivateCompletion';
 import { readAwsPrivateCapture } from '../../background/awsPrivateCapture';
 import { waitForOffscreenReady } from '../../background/offscreenReady';
@@ -129,11 +130,20 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
       send: (id, message) => browser.tabs.sendMessage(id, message, { frameId: 0 }),
     });
   }
-  if (privateMessage?.type === 'GCP_PRIVATE_HEARTBEAT' || privateMessage?.type === 'AWS_PRIVATE_HEARTBEAT') {
-    return Promise.resolve({ ok: !!livePrivateRoute(privateMessage.requestId, sender, progressRoutes, privateDeps, privateMessage.type === 'AWS_PRIVATE_HEARTBEAT' ? 'aws' : 'gcp') });
+  if (privateMessage?.type === 'CF_PRIVATE_TOKEN') {
+    return readCloudflareToken(msg, sender, progressRoutes, { extensionId: privateDeps.extensionId, offscreenUrl: privateDeps.offscreenUrl,
+      now: Date.now, launch: url => browser.identity.launchWebAuthFlow({ url, interactive: true }),
+      redirectUrl: browser.identity.getRedirectURL(), clientId: cloudflareClientId(), fetch: (...args) => fetch(...args) });
   }
-  if (privateMessage?.type === 'GCP_PRIVATE_COMPLETE' || privateMessage?.type === 'AWS_PRIVATE_COMPLETE') {
-    const completion = takePrivateCompletion(msg, sender, progressRoutes, privateDeps, privateMessage.type === 'AWS_PRIVATE_COMPLETE' ? 'aws' : 'gcp');
+  const messageProvider = (type: string | undefined, suffix: string): PrivateProvider | undefined =>
+    type === `GCP_PRIVATE_${suffix}` ? 'gcp' : type === `AWS_PRIVATE_${suffix}` ? 'aws' : type === `CF_PRIVATE_${suffix}` ? 'cloudflare' : undefined;
+  const heartbeatProvider = messageProvider(privateMessage?.type, 'HEARTBEAT');
+  if (heartbeatProvider) {
+    return Promise.resolve({ ok: !!livePrivateRoute(privateMessage.requestId, sender, progressRoutes, privateDeps, heartbeatProvider) });
+  }
+  const completeProvider = messageProvider(privateMessage?.type, 'COMPLETE');
+  if (completeProvider) {
+    const completion = takePrivateCompletion(msg, sender, progressRoutes, privateDeps, completeProvider);
     if (!completion) return Promise.resolve({ ok: false });
     return browser.tabs.sendMessage(completion.tabId, { type: 'RUN_BUILTIN_COMPLETE',
       requestId: completion.requestId, ...completion.response }).then(() => ({ ok: true })).catch(() => ({ ok: false }));
@@ -215,7 +225,8 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
 
   if (request.type === 'PLUGIN_PROGRESS') {
     const route = progressRoutes.get(request.requestId);
-    if ((route?.gcpPrivate || route?.awsPrivate) && !livePrivateRoute(request.requestId, sender, progressRoutes, privateDeps, route.awsPrivate ? 'aws' : 'gcp')) return;
+    const provider = routeProvider(route);
+    if (provider && !livePrivateRoute(request.requestId, sender, progressRoutes, privateDeps, provider)) return;
     if (route?.pageProgress) {
       browser.tabs
         .sendMessage(route.tabId, {
@@ -269,10 +280,11 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
     const requestId = approval.requestId;
     const privateGcp = approval.plugin.id === 'gcp-work';
     const privateAws = approval.plugin.id === 'aws-private-work';
-    const privateRun = privateGcp || privateAws;
-    const privateError = privateAws ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
+    const privateCf = approval.plugin.id === 'cloudflare-private-work';
+    const privateRun = privateGcp || privateAws || privateCf;
+    const privateError = privateAws ? 'AWS_PRIVATE_PROVING_FAILED' : privateCf ? 'CF_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
     if ((privateRun && (!requestId || sender.tab?.id === undefined || progressRoutes.has(requestId))) ||
-        (requestId && (progressRoutes.get(requestId)?.gcpPrivate || progressRoutes.get(requestId)?.awsPrivate))) {
+        (requestId && routeProvider(progressRoutes.get(requestId)))) {
       if (privateGcp) {
         try { console.debug('GCP_PRIVATE_ROUTE_REFUSED'); } catch { /* Keep the original refusal. */ }
       }
@@ -285,7 +297,7 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
         tabId: sender.tab.id,
         createdAt: Date.now(),
         pageProgress: true,
-        ...(privateGcp ? { gcpPrivate: true } : privateAws ? { awsPrivate: true } : {}),
+        ...(privateGcp ? { gcpPrivate: true } : privateAws ? { awsPrivate: true } : privateCf ? { cfPrivate: true } : {}),
       });
     }
 
@@ -559,7 +571,7 @@ setInterval(() => {
   // Evict stale progress routes (TTL-based)
   const now = Date.now();
   for (const [requestId, route] of progressRoutes) {
-    if (now - route.createdAt >= (route.awsPrivate ? AWS_PRIVATE_ROUTE_TTL_MS : route.gcpPrivate ? GCP_PRIVATE_ROUTE_TTL_MS : PROGRESS_ROUTE_TTL_MS)) {
+    if (now - route.createdAt >= (route.cfPrivate ? CF_PRIVATE_ROUTE_TTL_MS : route.awsPrivate ? AWS_PRIVATE_ROUTE_TTL_MS : route.gcpPrivate ? GCP_PRIVATE_ROUTE_TTL_MS : PROGRESS_ROUTE_TTL_MS)) {
       logger.debug('Evicting stale progress route:', requestId);
       progressRoutes.delete(requestId);
     }

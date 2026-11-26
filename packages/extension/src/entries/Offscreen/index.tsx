@@ -11,6 +11,8 @@ import { createGcpPrivateModule, readCloudLink } from '../../gcp-private/browser
 import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
 import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
 import { AwsPrivateWitnessRun, awsOffscreenStage, awsPrivateAttemptParam } from '../../offscreen/awsPrivateWitness';
+import { createCloudflarePrivateModule } from '../../cloudflare-private/browser-client.mjs';
+import { CloudflarePrivateWitnessRun, cloudflareOffscreenStage, cloudflarePrivateAttemptParam } from '../../offscreen/cloudflarePrivateWitness';
 
 const OffscreenApp: React.FC = () => {
   useEffect(() => {
@@ -66,11 +68,45 @@ const OffscreenApp: React.FC = () => {
             return { success: false, error: prepared.error, requestId: request.requestId };
           }
           let activeCode = prepared.code;
-          const execute = async (privateModule?: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun) => {
+          const execute = async (privateModule?: ReturnType<typeof createGcpPrivateModule> | AwsPrivateWitnessRun | CloudflarePrivateWitnessRun) => {
             const sm = await sessionManager.awaitInit();
             return sm.executePlugin(activeCode, request.requestId ?? undefined,
               runSessionData(request.sessionData, prepared.sha256), privateModule);
           };
+          // 16signals fork (Cloudflare): OAuth token from the background, local discovery, page sessions, proofs here.
+          if (request.pluginId === 'cloudflare-private-work') {
+            if (privateRunning || !request.requestId) return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' };
+            let run: CloudflarePrivateWitnessRun | undefined;
+            try {
+              const params = JSON.parse(request.values.params);
+              const attempt = cloudflarePrivateAttemptParam(params?.privateAttempt, request.requestId, prepared.sha256);
+              const module = createCloudflarePrivateModule({ attempt, workerUrl: browser.runtime.getURL('cloudflare-private/browser-worker.js'),
+                onProgress: ({ completedProofs }) => {
+                  browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,
+                    progress: { method: 'CLOUDFLARE_ACCOUNT', status: 'busy', index: completedProofs, total: 64 } }).catch(() => {});
+                },
+              });
+              try { run = new CloudflarePrivateWitnessRun(runSessionData(request.sessionData, prepared.sha256), request.requestId, attempt, module); }
+              catch { module.clear(); throw new Error(); }
+            } catch { cloudflareOffscreenStage('MODULE_FAILED'); run?.clear(); return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' }; }
+            privateRunning = true;
+            const heartbeat = setInterval(() => {
+              browser.runtime.sendMessage({ type: 'CF_PRIVATE_HEARTBEAT', requestId: request.requestId })
+                .then(reply => { if (!reply || typeof reply !== 'object' || !('ok' in reply) || reply.ok !== true) run!.clear(); })
+                .catch(() => run!.clear());
+            }, 20_000);
+            void (async () => {
+              try {
+                const result = await execute(run!);
+                await browser.runtime.sendMessage({ type: 'CF_PRIVATE_COMPLETE', requestId: request.requestId, success: true, result });
+              } catch {
+                cloudflareOffscreenStage('EXECUTE_FAILED');
+                await browser.runtime.sendMessage({ type: 'CF_PRIVATE_COMPLETE', requestId: request.requestId,
+                  success: false, error: run!.passedError || 'CF_PRIVATE_PROVING_FAILED' }).catch(() => {});
+              } finally { clearInterval(heartbeat); run!.clear(); privateRunning = false; }
+            })();
+            return { success: true, pending: true, requestId: request.requestId };
+          }
           if (request.pluginId === 'gcp-work' || request.pluginId === 'aws-private-work') {
             const aws = request.pluginId === 'aws-private-work';
             const privateError = aws ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';

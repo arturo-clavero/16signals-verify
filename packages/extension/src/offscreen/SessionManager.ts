@@ -36,6 +36,7 @@ import { GcpPrivateWitnessRun, PrivateWitnessRun, clearGcpOpenings } from './gcp
 import { gcpPrivateProgress } from './gcpPrivateProgress';
 import type { GcpPrivateProofModule } from './gcpPrivateWitness';
 import { AwsPrivateWitnessRun, awsOffscreenStage } from './awsPrivateWitness';
+import { CloudflarePrivateWitnessRun, cloudflareOffscreenStage } from './cloudflarePrivateWitness';
 import type { AwsCapture } from '../aws-private/browser-client.mjs';
 import type { RevealOutput } from 'tlsn-wasm';
 
@@ -252,9 +253,11 @@ export class SessionManager {
         const mode = (sessionData.mode as 'Mpc' | 'Proxy') ?? 'Mpc';
         if (privateRun && [[proverOptions.maxSentData ?? 4096, 16384], [proverOptions.maxRecvData ?? 16384, privateRun.recvLimit(sessionData.step)]]
           .some(([limit, max]) => !Number.isSafeInteger(limit) || limit <= 0 || limit > max)) {
+          if (privateRun instanceof CloudflarePrivateWitnessRun) cloudflareOffscreenStage('LIMIT_REFUSED');
           throw new Error('GCP_PRIVATE_PROOF_INVALID');
         }
-        privateRun?.begin(sessionData, url.hostname, isRelay);
+        try { privateRun?.begin(sessionData, url.hostname, isRelay); }
+        catch (error) { if (privateRun instanceof CloudflarePrivateWitnessRun) cloudflareOffscreenStage('BEGIN_REFUSED'); throw error; }
         let privateOpenings: RevealOutput | undefined;
         const modeLabel = isRelay ? `relay (${mode})` : mode === 'Proxy' ? 'Proxy' : 'MPC';
         logger.debug('[SessionManager] Prove mode:', mode, 'relay:', isRelay);
@@ -291,6 +294,7 @@ export class SessionManager {
               mode,
             ).catch(error => {
               if (privateRun instanceof AwsPrivateWitnessRun) awsOffscreenStage('PROVER_CREATE_FAILED');
+              if (privateRun instanceof CloudflarePrivateWitnessRun) cloudflareOffscreenStage('PROVER_CREATE_FAILED');
               if (privateRun) throw new Error('GCP_PRIVATE_PROOF_FAILED');
               throw error;
             });
@@ -414,6 +418,9 @@ export class SessionManager {
         } catch (error) {
           if (privateRun) {
             if (privateRun instanceof AwsPrivateWitnessRun) awsOffscreenStage('PROVE_FAILED');
+            // Cloudflare: the fixed reason code only (e.g. GCP_PRIVATE_PROOF_INVALID from the range checks), never a value.
+            if (privateRun instanceof CloudflarePrivateWitnessRun) cloudflareOffscreenStage(`PROVE_FAILED_${
+              /^[A-Z][A-Z0-9_]{2,60}$/.test(String((error as Error)?.message)) ? (error as Error).message : 'OTHER'}`);
             privateRun.clear();
             throw new Error('GCP_PRIVATE_PROOF_FAILED');
           }
@@ -564,6 +571,9 @@ export class SessionManager {
       return privateRun.collect(async () => await chromeRuntime.sendMessage({ type: 'AWS_PRIVATE_CREDENTIALS',
         requestId: execRequestId, windowId, captureId }) as AwsCapture);
     });
+    // Cloudflare: the background runs the OAuth consent and hands the token to this run only.
+    if (privateRun instanceof CloudflarePrivateWitnessRun) host.addCapability('collectCloudflarePrivate', () =>
+      privateRun.collect(async () => await chromeRuntime.sendMessage({ type: 'CF_PRIVATE_TOKEN', requestId: execRequestId }) as { token?: string; error?: string }));
 
     // Wrap the plugin's event listener so it does NOT return a Promise to
     // Chrome's messaging API. The plugin listener (makeOpenWindow's onMessage)

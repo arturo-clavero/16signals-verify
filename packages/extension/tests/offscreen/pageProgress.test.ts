@@ -179,7 +179,8 @@ describe('page progress: background and content script gates', () => {
     expect(bg).toMatch(
       /if \(!approval\.ok\) \{[\s\S]{0,200}?return Promise\.resolve\(\{ success: false, error: approval\.error \}\);\s*\}[\s\S]*?progressRoutes\.set\(requestId, \{[\s\S]{0,120}?pageProgress: true,/,
     );
-    expect(bg).toContain("(route?.gcpPrivate || route?.awsPrivate) && !livePrivateRoute(request.requestId, sender, progressRoutes, privateDeps, route.awsPrivate ? 'aws' : 'gcp')");
+    expect(bg).toContain("const provider = routeProvider(route);");
+    expect(bg).toContain("if (provider && !livePrivateRoute(request.requestId, sender, progressRoutes, privateDeps, provider)) return;");
     expect(bg).toMatch(
       /request\.type === 'PLUGIN_PROGRESS'\) \{\s*const route = progressRoutes\.get\(request\.requestId\);[\s\S]*?if \(route\?\.pageProgress\) \{/,
     );

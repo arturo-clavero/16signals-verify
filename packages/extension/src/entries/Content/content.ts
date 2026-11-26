@@ -95,7 +95,7 @@ class ExtensionAPI {
         ? options.requestId
         : `run_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     return new Promise((resolve, reject) => {
-      const privateRun = options.pluginId === 'gcp-work' || options.pluginId === 'aws-private-work';
+      const privateRun = options.pluginId === 'gcp-work' || options.pluginId === 'aws-private-work' || options.pluginId === 'cloudflare-private-work';
       let startTimer: ReturnType<typeof setTimeout> | undefined;
       let runTimer: ReturnType<typeof setTimeout> | undefined;
       const cleanup = () => {

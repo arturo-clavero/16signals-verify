@@ -239,7 +239,11 @@ browser.runtime.onMessage.addListener((msg: unknown, sender: browser.Runtime.Mes
     window.postMessage({ type: 'TLSN_RUN_BUILTIN_RESPONSE', requestId: completion.requestId,
       ...(completion.success === true ? { success: true, result: completion.result } :
         { success: false, error: pending.error === 'AWS_PRIVATE_PROVING_FAILED' && completion.error === 'AWS_ACTIVITY_ACCESS_REQUIRED'
-          ? 'AWS_ACTIVITY_ACCESS_REQUIRED' : pending.error }) }, window.location.origin);
+          ? 'AWS_ACTIVITY_ACCESS_REQUIRED'
+          // Cloudflare: fixed candidate-facing codes only (consent refused, no account, no activity).
+          : pending.error === 'CF_PRIVATE_PROVING_FAILED' && typeof completion.error === 'string' &&
+            ['CF_OAUTH_CANCELLED', 'CF_ACCOUNT_ACCESS_REQUIRED', 'CF_NO_ACTIVITY'].includes(completion.error)
+          ? completion.error : pending.error }) }, window.location.origin);
     return;
   }
   const request = msg as ContentMessage;
@@ -376,8 +380,9 @@ window.addEventListener('message', (event) => {
         { type: 'TLSN_RUN_BUILTIN_RESPONSE', requestId, ...body },
         window.location.origin,
       );
-    const privateRun = p.pluginId === 'gcp-work' || p.pluginId === 'aws-private-work';
-    const privateError = p.pluginId === 'aws-private-work' ? 'AWS_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
+    const privateRun = p.pluginId === 'gcp-work' || p.pluginId === 'aws-private-work' || p.pluginId === 'cloudflare-private-work';
+    const privateError = p.pluginId === 'aws-private-work' ? 'AWS_PRIVATE_PROVING_FAILED'
+      : p.pluginId === 'cloudflare-private-work' ? 'CF_PRIVATE_PROVING_FAILED' : 'GCP_PRIVATE_PROVING_FAILED';
     if (privateRun && requestId && PRODUCT_PAGE) {
       if (pendingPrivateRuns.has(requestId)) return;
       pendingPrivateRuns.set(requestId, { error: privateError, timer: setTimeout(() => {

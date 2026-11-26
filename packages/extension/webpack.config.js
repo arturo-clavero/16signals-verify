@@ -184,6 +184,8 @@ var options = {
       // layout of each packaged bundle, constants/builtinPlugins.ts); set by
       // build.sh. Unset = none (nothing can run).
       __FORK_PLUGIN_ALLOWLIST__: JSON.stringify(process.env.FORK_PLUGIN_ALLOWLIST || ''),
+      // Cloudflare private check: the public OAuth client id (not a secret).
+      __FORK_CF_OAUTH_CLIENT_ID__: JSON.stringify(process.env.FORK_CF_OAUTH_CLIENT_ID || ''),
       // Exact https URLs a trusted plugin may send its own window to
       // (constants/pluginNavigate.ts); set by build.sh. Unset = none.
       __FORK_NAVIGATE_URLS__: JSON.stringify(process.env.FORK_NAVIGATE_URLS || ''),
