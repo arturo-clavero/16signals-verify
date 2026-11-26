@@ -7,13 +7,13 @@
 import { parseJsonStructure } from '../gcp/json-structure.mjs';
 import { localHttp } from './client-plan.mjs';
 import { awsPageRows, awsPageRowPieces, AWS_EVENTS_OPEN } from './page-structure.mjs';
-import { inspectAwsPageDirections } from './page-session.mjs';
+import { AWS_PAGE_ROW_CAP, inspectAwsPageDirections } from './page-session.mjs';
 import { AWS_PAGE_BYTES, awsCloudTrailRegion, awsRegionHolds } from './request.mjs';
 import { AWS_PAGE_STEPS } from './sessions.mjs';
 import { awsCatalogOperation } from './skill-groups.mjs';
 
-/** Rows proven per page session at most, and the verifier's reveal ceiling (AES blocks, both directions). */
-export const AWS_PAGE_ROW_CAP = 21;
+export { AWS_PAGE_ROW_CAP };
+/** The verifier's reveal ceiling (AES blocks, both directions). */
 export const AWS_PAGE_REVEAL_BLOCKS = 2500;
 const ZERO = '0'.repeat(64);
 const fail = () => { throw new Error('AWS_PRIVATE_CLIENT_INVALID'); };

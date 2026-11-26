@@ -3,6 +3,7 @@ import test from 'node:test';
 import { pageEvent, pageSessionFixture, pageClaims, nativeReceipt, PAGE_IDENTITY } from './page-fixture.mjs';
 import { inspectAwsPageSession } from './page-session.mjs';
 import { planAwsPageSession } from './page-plan.mjs';
+import { awsPageRowPieces } from './page-structure.mjs';
 import { fixtureNow } from './event-fixture.mjs';
 
 const DAY = 86400, now = Math.floor(fixtureNow / 1000), userLength = PAGE_IDENTITY.userName.length;
@@ -105,6 +106,22 @@ test('the planner stops at the row cap and the reveal ceiling', () => {
   assert.ok(rows <= 21 && rows >= 10, String(rows));
   const meta = { step: 'P0', serverName: 'cloudtrail.us-east-1.amazonaws.com', nonceMac: fixture.expected.nonceMac };
   assert.throws(() => planAwsPageSession(meta, fixture.plaintext, new Set(['not-on-this-page'])), { message: 'AWS_PRIVATE_CLIENT_INVALID' });
+});
+
+test('a page proving more than 21 rows fails before any proof is checked', () => {
+  const fixture = pageSessionFixture({ events: Array.from({ length: 22 }, (_, index) => write(index + 1)) });
+  assert.equal(inspect(fixture).rows.length, 21);
+  const recv = fixture.plaintext.recv.toString('latin1'), bodyStart = recv.indexOf('\r\n\r\n') + 4, body = recv.slice(bodyStart);
+  let at = -1;
+  for (let row = 0; row < 22; row++) at = body.indexOf('"CloudTrailEvent":"', at + 1);
+  const pieces = awsPageRowPieces(body, at);
+  assert.ok(pieces);
+  rejects(forged(fixture, ranges => {
+    for (const piece of pieces) {
+      const start = piece.start + bodyStart, end = piece.end + bodyStart;
+      ranges.push(piece.type === 'R' ? reveal(start, end) : { start, end, handler: { type: 'RECV', part: 'BODY', action: { kind: 'HASH', algorithm: 'SHA256' } } });
+    }
+  }));
 });
 
 test('the client host header is a committed escaped string: revealed or unproven, the row fails', () => {

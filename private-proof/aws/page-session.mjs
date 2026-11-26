@@ -14,6 +14,9 @@ import { matchAwsPageRows } from './page-structure.mjs';
 import { AWS_PAGE_STEPS } from './sessions.mjs';
 import { AWS_LIMITS, AWS_REGION, awsCloudTrailHost, awsCloudTrailRegion } from './request.mjs';
 
+/** Rows proven per page session at most; a page with more fails before any proof is checked. */
+export const AWS_PAGE_ROW_CAP = 21;
+
 const fail = () => { throw new Error('AWS_PRIVATE_PAGE_INVALID'); };
 const key = slot => `${slot.direction}:${slot.start}:${slot.end}:${slot.hash}`;
 const DAY = 86400;
@@ -127,7 +130,7 @@ function inspectPage(directions, expected, atomClaims, userNameLength, region) {
   if (max < 1 || max > AWS_LIMITS.pageSize || start > end || end > issued || start < issued - 90 * DAY) fail();
 
   const rows = matchAwsPageRows(bodyPieces(directions.recv, head.bodyStart), { userNameLength, region });
-  if (!rows.length || rows.length > max) fail();
+  if (!rows.length || rows.length > max || rows.length > AWS_PAGE_ROW_CAP) fail();
   const slot = piece => native.get(key({ direction: 'RECV', start: piece.wireStart, end: piece.wireStart + piece.end - piece.start, hash: piece.hash })) ?? fail();
   const proven = rows.map(row => {
     if (row.day < Math.floor(start / DAY) || row.day > Math.floor(end / DAY)) fail();
