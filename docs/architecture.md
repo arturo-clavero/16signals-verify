@@ -151,6 +151,7 @@ The fork extends the server for private proofs:
 | Reveal ceiling | The AES blocks a proof would authenticate are counted when announced and again at the prover's request; over the limit gives `REVEAL_TOO_LARGE`. | `TLSN_MAX_REVEAL_BLOCKS` |
 | Memory admission | Sessions reserve memory against a budget, queue briefly, and get `VERIFIER_BUSY` when it is full, so one large proof cannot starve the rest. | `TLSN_MEMORY_BUDGET_MB` (default 85% of the container limit) |
 | Session cap and timeouts | Active sessions are capped (429 over the cap); idle clients time out. | `TLSN_MAX_SESSIONS`, `TLSN_MAX_RECV_DATA`, `TLSN_MAX_SENT_DATA` |
+| Signed receipts | Each verified proof's webhook payload carries an Ed25519 JWS over a salted Merkle root of its ranges, and the public key is served at `/.well-known/did.json`. See [`servers/verifier/README.md`](../servers/verifier/README.md#signed-receipts). | `TLSN_ATTESTOR_KEY` or `TLSN_ATTESTOR_KEY_FILE`, `TLSN_ATTESTOR_KID` (off when unset) |
 
 Prepare the core once before a native build: `bash core/prepare-core.sh "$PWD/core/tlsn"`. The Docker images
 do this themselves and use the repository root as build context.

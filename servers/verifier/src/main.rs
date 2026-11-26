@@ -1,4 +1,5 @@
 mod admission;
+mod attestor;
 mod reveal;
 mod settings;
 mod verifier;
@@ -66,6 +67,11 @@ async fn main() {
         "Session cap: {} active sessions",
         app_state.settings.max_sessions
     );
+    // The kid is public; the key is never logged.
+    match &app_state.settings.attestor {
+        Some(attestor) => info!("Attestor receipts enabled, kid {}", attestor.kid()),
+        None => info!("No attestor key: webhook payloads carry no receipt"),
+    }
 
     // Build router with routes
     let app = router(app_state);
@@ -107,6 +113,7 @@ pub(crate) fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_handler))
         .route("/info", get(info_handler))
+        .route("/.well-known/did.json", get(did_document_handler))
         .route("/session", get(session_ws_handler))
         .route("/verifier", get(verifier_ws_handler))
         .route("/proxy", get(proxy_ws_handler))
@@ -394,6 +401,10 @@ struct WebhookPayload {
     session: SessionInfo,
     /// Redacted transcripts (bytes outside revealed ranges replaced with 0x00)
     transcript: RedactedTranscript,
+    /// Top-level `receipt` (compact JWS) and `leaves` (ranges + salts, no
+    /// bytes), both or neither. Absent without an attestor key. Never logged.
+    #[serde(flatten)]
+    attestation: Option<attestor::Attestation>,
 }
 
 /// Reveal config for webhook (same structure, different purpose)
@@ -457,6 +468,15 @@ impl RedactedTranscript {
 // Health check endpoint handler
 async fn health_handler() -> impl IntoResponse {
     "ok"
+}
+
+/// `GET /.well-known/did.json`: the did:web document of the attestor key
+/// (public key only); 404 when receipts are off.
+pub(crate) async fn did_document_handler(State(state): State<Arc<AppState>>) -> axum::response::Response {
+    match &state.settings.attestor {
+        Some(attestor) => axum::Json(attestor.did_document()).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// Info response structure
@@ -1609,6 +1629,26 @@ async fn run_verifier_task(
                 &reveal_config,
             );
 
+            // Sign a receipt over the proof's ranges (raw bytes), bound to this
+            // result's id. A
+            // proof without one is still delivered; only the reason is logged.
+            let attestation = state.settings.attestor.as_ref().and_then(|signer| {
+                signer
+                    .attest(&attestor::SessionFacts {
+                        server_name: server_name_str,
+                        session_id: &result_id,
+                        session_data: &result_data,
+                        sent: &reveal_config.sent,
+                        recv: &reveal_config.recv,
+                        sent_bytes: &sent_bytes,
+                        recv_bytes: &recv_bytes,
+                    })
+                    .map_err(|reason| {
+                        warn!("[{}] No attestor receipt: {}", result_id, reason.as_str())
+                    })
+                    .ok()
+            });
+
             let payload = WebhookPayload {
                 server_name: server_name_str.to_string(),
                 results: handler_results.clone(),
@@ -1621,6 +1661,7 @@ async fn run_verifier_task(
                     data: result_data,
                 },
                 transcript: redacted_transcript,
+                attestation,
             };
 
             // Fire and forget - don't block on webhook

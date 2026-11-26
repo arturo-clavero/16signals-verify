@@ -6,6 +6,7 @@ A Rust-based HTTP server with WebSocket support for TLSNotary verification opera
 
 - **Health Check Endpoint**: Simple `/health` endpoint that returns "ok" for monitoring
 - **Verifier WebSocket**: WebSocket server at `/verifier` for TLSNotary verification
+- **Signed receipts**: optional Ed25519 receipts over each verified proof, key published at `/.well-known/did.json` (see [Signed receipts](#signed-receipts))
 - **CORS Enabled**: Permissive CORS configuration for cross-origin requests
 - **Async Runtime**: Built on Tokio for high-performance async operations
 - **Logging**: Structured logging with tracing for debugging and monitoring
@@ -229,6 +230,67 @@ Refusals log one JSON line each (`tlsn.reveal.too_large`, `tlsn.admission`), cou
 reservation (the largest of its proofs) until it ends.
 
 A new `/session` socket must send `register` within 30 s and its first `reveal_config` within 180 s.
+
+## Signed receipts
+
+With an attestor key configured, every verified proof's webhook payload gains two top-level fields, both or
+neither: `receipt`, a compact JWS signed by the verifier, and `leaves`, the salted ranges the receipt's Merkle root
+commits to. A reader holding the payload and the verifier's public key can check which bytes of which TLS session
+the verifier witnessed, without trusting whoever relays the payload. Without a key nothing changes.
+
+### Configuration
+
+| Variable | Effect |
+|---|---|
+| `TLSN_ATTESTOR_KEY` | the private key, a one-line OKP Ed25519 JWK: `{"kty":"OKP","crv":"Ed25519","x":"<32 bytes b64url>","d":"<32 bytes b64url>"}` (unpadded base64url; extra members such as `kid`, `use`, `alg: "EdDSA"` are allowed) |
+| `TLSN_ATTESTOR_KEY_FILE` | instead of `TLSN_ATTESTOR_KEY`: a file holding that JWK (e.g. a mounted secret); setting both is an error |
+| `TLSN_ATTESTOR_KID` | required with a key: the key's full DID URL, `did:web:<host>#<fragment>`, e.g. `did:web:verifier.example.com#tlsn-attestor`. `<host>` is the public host the verifier is served on (a port is percent-encoded, `did:web:localhost%3A7047`) |
+
+Generate a key with
+`node -e "const {generateKeyPairSync:g}=require('crypto');console.log(JSON.stringify(g('ed25519').privateKey.export({format:'jwk'})))"`.
+The server checks that `x` is the public key of `d` and refuses to start on a malformed key or kid. The key, the
+receipts and the salts are never logged.
+
+`GET /.well-known/did.json` serves the did:web document for the kid's host (404 without a key): one
+`JsonWebKey2020` verification method with the public JWK (`kty`, `crv`, `x`, `alg`, `use`; never `d`), listed in
+`assertionMethod`. Serve the verifier at `https://<host>/` so `did:web:<host>` resolves to it. Only the current key
+is listed: when you rotate (new fragment, e.g. `tlsn-attestor-2`), receipts signed by the old key need the old
+public key from elsewhere.
+
+### Format
+
+`receipt` header: `{"alg":"EdDSA","kid":"<TLSN_ATTESTOR_KID>","typ":"tlsn-receipt+jws"}`. Payload, in this order:
+`{"v":1,"serverName","sessionId","proofId","verifiedAt","tlsnVersion","root","leafCount"}`. `sessionId` is the id
+the result is delivered under (for a later proof of a multi-reveal session, its own result id), `proofId` the
+client's `sessionData.proofId` (omitted when it sent none), `verifiedAt` RFC 3339 UTC with milliseconds,
+`tlsnVersion` the TLSNotary core version, `root` 64 lowercase hex.
+
+`leaves`: one per `config.sent` range in config order, then one per `config.recv` range, as
+`{"direction":"sent"|"recv","start","end","salt":"<64 lowercase hex>"}`; never the bytes. Each salt is 32 fresh
+OS CSPRNG bytes.
+
+```text
+leafHash = SHA-256(0x00 ‖ dir ‖ u64be(start) ‖ u64be(end − start) ‖ salt ‖ bytes)    dir: 0x00 sent, 0x01 recv
+nodeHash = SHA-256(0x01 ‖ left ‖ right)
+```
+
+over the raw transcript bytes the verifier holds (a `HASH` range was never revealed, so its bytes are zero there,
+as in `transcript`). Levels pair (0,1), (2,3), …; an odd last node is promoted unchanged; one leaf is its own root.
+Test vectors: [`src/tests/receipt-merkle-vectors.json`](src/tests/receipt-merkle-vectors.json).
+
+No receipt (the payload is otherwise unchanged; the reason is logged by name) when a proof has no range or the
+CSPRNG fails.
+
+### Verifying a receipt
+
+1. Resolve the header's `kid`: fetch `https://<host>/.well-known/did.json` for `did:web:<host>`, take the
+   `verificationMethod` whose `id` is the kid and which is listed in `assertionMethod`.
+2. Verify the JWS with that key, EdDSA only (e.g. `jose`: `compactVerify(jws, key, { algorithms: ['EdDSA'] })`),
+   and check `typ` is `tlsn-receipt+jws`.
+3. Recompute every leaf hash from `leaves` and the bytes you were given (the revealed bytes of each range),
+   build the tree, and compare with `root` and `leafCount`. To check a single range,
+   an inclusion proof (its siblings, bottom up) against `root` is enough.
+4. Check `serverName`, `sessionId` / `proofId` and `verifiedAt` against what you expect.
 
 ## Development
 
