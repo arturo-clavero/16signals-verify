@@ -43,7 +43,9 @@ test('package captures AWS early and the production guard limits the regional wi
   const { path, context, manifest } = fixture(t, {});
   assert.equal(manifest.name, 'test');
   assert.equal(manifest.description, 'test description');
-  assert.deepEqual(manifest.permissions, ['offscreen', 'webRequest']);
+  assert.deepEqual(manifest.permissions, ['offscreen', 'webRequest', 'identity']);
+  assert(manifest.host_permissions.includes('https://api.cloudflare.com/*'));
+  assert(manifest.content_scripts[0].matches.includes('https://dash.cloudflare.com/*'));
   assert.equal(manifest.content_scripts.length, 2);
   assert.deepEqual(manifest.content_scripts[1].matches, consoleHosts);
   assert.equal(manifest.content_scripts[1].run_at, 'document_start');

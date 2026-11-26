@@ -25,6 +25,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 GCP="$ROOT/private-proof/gcp"
 AWS="$ROOT/private-proof/aws"
+CF="$ROOT/private-proof/cloudflare"
 CORE="$ROOT/core"
 WORK="$HERE/.work"; OUT="$HERE/out"
 
@@ -42,7 +43,7 @@ else
   KEY_FILE=""; PRODUCTION=0; DEFAULT_NAME="TLSN Extension (dev)"
 fi
 NAME="${FORK_NAME:-$DEFAULT_NAME}"
-DESCRIPTION="${FORK_DESCRIPTION:-Creates TLSNotary proofs of web data in the browser, including private zero-knowledge proofs for GCP and AWS.}"
+DESCRIPTION="${FORK_DESCRIPTION:-Creates TLSNotary proofs of web data in the browser, including private zero-knowledge proofs for GCP, AWS and Cloudflare.}"
 [ "${#DESCRIPTION}" -le 132 ] || { echo "manifest description is ${#DESCRIPTION} characters (max 132)" >&2; exit 1; }
 ICON_DIR=""
 if [ -n "${FORK_ICON_DIR:-}" ]; then
@@ -105,6 +106,9 @@ for circuit in "$AWS"/circuits/*/; do
   (cd "$circuit" && "${GCP_NOIR_NARGO:-nargo}" compile)
 done
 node "$AWS/build-artifacts.mjs"
+# Cloudflare: pinned circuits; the OAuth client id comes from FORK_CF_OAUTH_CLIENT_ID.
+node "$CF/build-artifacts.mjs"
+[ -n "${FORK_CF_OAUTH_CLIENT_ID:-}" ] || echo "warning: FORK_CF_OAUTH_CLIENT_ID is empty: the Cloudflare check cannot sign in with this build" >&2
 PRIVATE_SOURCE="$ROOT/packages/extension/src/gcp-private"
 mkdir -p "$PRIVATE_SOURCE/generated"
 for module in browser-link browser-client client-plan authenticated-transcript gcp-structure http-structure json-structure policy verify-bundle; do
@@ -131,6 +135,7 @@ node "$HERE/build-wasm.mjs" "$ROOT"
 node "$HERE/fix-quickjs-handles.mjs" "$ROOT"
 node "$GCP/build-browser.mjs" "$ROOT/packages/extension"
 node "$GCP/build-browser.mjs" "$ROOT/packages/extension" aws
+node "$GCP/build-browser.mjs" "$ROOT/packages/extension" cloudflare
 # Upstream's `npm run build` (build:deps, then the extension's utils/build.js), with the extension step run through
 # webpack-build.cjs, which records the files webpack put into the bundles (for THIRD_PARTY_NOTICES.txt below).
 EXT_VERSION="$(node -p 'require(process.argv[1]).version' "$ROOT/packages/extension/package.json")"
@@ -138,7 +143,7 @@ rm -f "$WORK/bundled-modules.json"
 { npm run build:deps && (cd packages/extension && NODE_ENV=production node "$HERE/webpack-build.cjs" "$WORK/bundled-modules.json"); } >"$WORK/build.log" 2>&1 \
   || { tail -40 "$WORK/build.log" >&2; echo "build failed, full log: $WORK/build.log" >&2; exit 1; }
 [ -s "$WORK/bundled-modules.json" ] || { echo "the build recorded no bundled modules ($WORK/bundled-modules.json)" >&2; exit 1; }
-node - "$WORK/bundled-modules.json" "$GCP/dist/browser-modules.json" "$AWS/dist/browser-modules.json" <<'NODE'
+node - "$WORK/bundled-modules.json" "$GCP/dist/browser-modules.json" "$AWS/dist/browser-modules.json" "$CF/dist/browser-modules.json" <<'NODE'
 const fs = require('node:fs');
 const [main, ...workers] = process.argv.slice(2);
 const files = [...new Set([main, ...workers].flatMap(file => JSON.parse(fs.readFileSync(file))))].sort();
@@ -149,6 +154,7 @@ rm -rf "$OUT/extension"; mkdir -p "$OUT"
 cp -R "$ROOT/packages/extension/build" "$OUT/extension"
 cp -R "$GCP/dist/browser" "$OUT/extension/gcp-private"
 cp -R "$AWS/dist/browser" "$OUT/extension/aws-private"
+cp -R "$CF/dist/browser" "$OUT/extension/cloudflare-private"
 # The built-in plugins, byte for byte (builtin-plugins/<id>-<sha256>.js; not web-accessible).
 if [ -d "$STAGE/builtin-plugins" ]; then cp -R "$STAGE/builtin-plugins" "$OUT/extension/builtin-plugins"; fi
 # icon-34 and icon-128 are also web-accessible resources, so the replacements keep upstream's file names.
@@ -160,7 +166,7 @@ fi
 # tlsn-wasm (third-party/wasm-crates.json, made by wasm-crates.mts). Refuses an unknown or copyleft license, a package
 # without license text, or a tlsn-wasm version other than the one the crate list was made for.
 node --no-warnings "$HERE/third-party-notices.mts" --modules "$WORK/bundled-modules.json" --upstream "$ROOT" \
-  --private-proof-root "$GCP" --aws-private-proof-root "$AWS" \
+  --private-proof-root "$GCP" --aws-private-proof-root "$AWS" --cloudflare-private-proof-root "$CF" \
   --product "$NAME $EXT_VERSION" --header "$HERE/THIRD_PARTY_NOTICES.txt" --crates "$HERE/third-party/wasm-crates.json" \
   --out "$OUT/extension/THIRD_PARTY_NOTICES.txt"
 [ -s "$OUT/extension/THIRD_PARTY_NOTICES.txt" ] || { echo "no THIRD_PARTY_NOTICES.txt in the extension: refusing to build" >&2; exit 1; }
@@ -181,7 +187,9 @@ if (!fs.readFileSync(process.env.OUT + "/extension/content.bundle.js", "utf8").i
 // and windows.create/get/remove/onRemoved need no permission) and windows (not a Chrome permission).
 const UNUSED = ["activeTab", "tabs", "windows"];
 m.permissions = m.permissions.filter((p) => !UNUSED.includes(p));
-const expected = ["offscreen", "webRequest"];
+// identity: chrome.identity.launchWebAuthFlow for the Cloudflare OAuth consent.
+if (!m.permissions.includes("identity")) m.permissions.push("identity");
+const expected = ["identity", "offscreen", "webRequest"];
 if (JSON.stringify([...m.permissions].sort()) !== JSON.stringify(expected))
   throw new Error("unexpected manifest permissions " + JSON.stringify(m.permissions) + " (expected " + JSON.stringify(expected) + ")");
 if (process.env.ICONS === "1") m.icons = { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" };
@@ -199,14 +207,17 @@ const extra = (process.env.EXTRA_HOSTS || "").split(",").filter(Boolean).map((h)
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~\/%*-]*$/.test(h)) throw new Error("extra host is not https://host/path: " + h);
   return h;
 });
-const hosts = [...new Set([...GCP, ...product, ...extra])];
+// Cloudflare: the run window shows the dashboard; OAuth token exchange on dash, the API on api.cloudflare.com.
+const CLOUDFLARE = ["https://dash.cloudflare.com/*"];
+const hosts = [...new Set([...GCP, ...CLOUDFLARE, ...product, ...extra])];
 // AWS page sessions read CloudTrail in each commercial Region; the list equals AWS_REGIONS in
 // private-proof/aws/request.mjs (build-manifest.test.mjs checks it). Exact hosts, no wildcard.
 const AWS_REGIONS = ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-east-2", "ap-northeast-1",
   "ap-northeast-2", "ap-northeast-3", "ap-south-1", "ap-south-2", "ap-southeast-1", "ap-southeast-2", "ap-southeast-3", "ap-southeast-4",
   "ap-southeast-5", "ap-southeast-6", "ap-southeast-7", "ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1",
   "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "il-central-1", "me-central-1", "me-south-1", "mx-central-1", "sa-east-1"];
-m.host_permissions = [...hosts, ...AWS_CONSOLE, "https://iam.amazonaws.com/*", ...AWS_REGIONS.map((r) => "https://cloudtrail." + r + ".amazonaws.com/*")];
+m.host_permissions = [...hosts, ...AWS_CONSOLE, "https://iam.amazonaws.com/*", ...AWS_REGIONS.map((r) => "https://cloudtrail." + r + ".amazonaws.com/*"),
+  "https://api.cloudflare.com/*"];
 if (m.content_scripts.length !== 1 || m.web_accessible_resources.length !== 1)
   throw new Error("upstream manifest changed: expected one content_scripts and one web_accessible_resources entry");
 m.content_scripts[0].matches = hosts;

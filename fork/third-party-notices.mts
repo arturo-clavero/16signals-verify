@@ -28,6 +28,7 @@ const need = (k: string) => {
 const upstream = realpathSync(need("upstream"));
 const privateProofRoot = args.has("private-proof-root") ? realpathSync(need("private-proof-root")) : null;
 const awsPrivateProofRoot = args.has("aws-private-proof-root") ? realpathSync(need("aws-private-proof-root")) : null;
+const cloudflarePrivateProofRoot = args.has("cloudflare-private-proof-root") ? realpathSync(need("cloudflare-private-proof-root")) : null;
 const modules: string[] = JSON.parse(readFileSync(need("modules"), "utf8"));
 const header = readFileSync(need("header"), "utf8").trim();
 const crates = JSON.parse(readFileSync(need("crates"), "utf8")) as {
@@ -99,7 +100,8 @@ function addFile(file: string) {
   const real = existsSync(file) ? realpathSync(file) : file;
   if (!real.startsWith(upstream + sep) &&
       !(privateProofRoot && real.startsWith(privateProofRoot + sep)) &&
-      !(awsPrivateProofRoot && real.startsWith(awsPrivateProofRoot + sep))) {
+      !(awsPrivateProofRoot && real.startsWith(awsPrivateProofRoot + sep)) &&
+      !(cloudflarePrivateProofRoot && real.startsWith(cloudflarePrivateProofRoot + sep))) {
     problems.push(`bundled file outside the upstream tree: ${real}`);
     return;
   }
@@ -121,7 +123,8 @@ function addFile(file: string) {
 for (const m of modules) addFile(m);
 for (const f of workspaceFiles) {
   if (!f.startsWith(join(upstream, "packages") + sep) && !(privateProofRoot && f.startsWith(privateProofRoot + sep)) &&
-      !(awsPrivateProofRoot && f.startsWith(awsPrivateProofRoot + sep)))
+      !(awsPrivateProofRoot && f.startsWith(awsPrivateProofRoot + sep)) &&
+      !(cloudflarePrivateProofRoot && f.startsWith(cloudflarePrivateProofRoot + sep)))
     problems.push(`bundled file is neither a package nor approved application code: ${f}`);
 }
 
