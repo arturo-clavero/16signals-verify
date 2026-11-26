@@ -1,5 +1,7 @@
 // Adapter from private-proof/{gcp,aws}/verify-bundle.mjs results to commitment fields.
 import { canonicalize, commitmentFields, sha256Hex } from './commitment.mjs';
+import { AWS_OPERATIONS, AWS_SKILL_AREAS } from '../../private-proof/aws/operation-catalog.mjs';
+import { AWS_SKILL_GROUPS } from '../../private-proof/aws/skill-groups.mjs';
 
 const KINDS = { gcp: 'GCP_PRIVATE_RESULT', aws: 'AWS_PRIVATE_RESULT' };
 const FIELD = /^(?:0x[0-9a-f]{1,64}|0|[1-9][0-9]{0,19})$/;
@@ -43,7 +45,9 @@ export function vkHashesFor(bundle, pins) {
   }));
 }
 
-const AWS_ACTIVITIES = ['iam-role-trust-update', 'lambda-configuration-update', 'security-group-ingress'];
+const AWS_ACTIVITIES = AWS_OPERATIONS.map(entry => entry.id);
+const AWS_GROUPS = AWS_SKILL_GROUPS.map(group => group.id);
+const CLAIM_BYTES = 128;
 
 function claimOf(provider, result) {
   if (provider === 'gcp') {
@@ -57,13 +61,24 @@ function claimOf(provider, result) {
   }
   if (provider === 'aws') {
     if (result?.attribution !== 'iam-user' || result?.windowDays !== 90) fail('aws result');
-    if (result.taskType === 'iam-role-trust-update' && !('activities' in result))
+    if (result.taskType === 'iam-role-trust-update' && !('activities' in result) && !('observations' in result))
       return { claim: `aws:${result.taskType}:${result.attribution}`, window: result.windowDays };
+    if ('observations' in result) {
+      // Page runs: the skill groups with at least one proven row, as 1-based catalog positions in display order.
+      const rows = result.observations;
+      if (!Array.isArray(rows) || !rows.length || rows.some(row => !AWS_GROUPS.includes(row?.group))) fail('aws observations');
+      const positions = [...new Set(rows.map(row => AWS_GROUPS.indexOf(row.group) + 1))].sort((a, b) => a - b);
+      return { claim: `aws:groups:${positions.join(',')}:${result.attribution}`, window: result.windowDays };
+    }
     const acts = result.activities;
     if (!Array.isArray(acts) || acts.length < 1 || acts.length > AWS_ACTIVITIES.length ||
         acts.some((id, i) => !AWS_ACTIVITIES.includes(id) || (i && AWS_ACTIVITIES.indexOf(id) <= AWS_ACTIVITIES.indexOf(acts[i - 1])))) fail('aws activities');
-    // Only the activity families the bundle proved, in policy order.
-    return { claim: `aws:activity:${acts.join(',')}:${result.attribution}`, window: result.windowDays };
+    // Only the activities the bundle proved, in catalog order; when the names do not fit a claim, their skill areas.
+    const claim = `aws:activity:${acts.join(',')}:${result.attribution}`;
+    if (claim.length <= CLAIM_BYTES) return { claim, window: result.windowDays };
+    const areas = AWS_SKILL_AREAS.map(area => area.id);
+    const positions = acts.map(id => areas.indexOf(AWS_OPERATIONS.find(entry => entry.id === id).skillArea) + 1);
+    return { claim: `aws:areas:${positions.join(',')}:${result.attribution}`, window: result.windowDays };
   }
   return fail('provider');
 }

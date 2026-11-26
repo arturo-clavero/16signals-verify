@@ -1,5 +1,7 @@
 // Pure verification logic for the static verify page. No DOM, no network: I/O is injected so Node tests run it as is.
 import { bundleCommitment, proofHash, publicBundle, verifyAttestation } from '../crops/proof-bundle/index.mjs';
+import { AWS_OPERATIONS, AWS_SKILL_AREAS } from '../private-proof/aws/operation-catalog.mjs';
+import { AWS_SKILL_GROUPS } from '../private-proof/aws/skill-groups.mjs';
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const VK_PINS = { gcp: '../private-proof/gcp/generated/verification-keys.json', aws: '../private-proof/aws/generated/pins.json' };
@@ -26,7 +28,7 @@ function vkPin(pin) {
 }
 
 /** Recomputes the coarse claim from the proven public inputs where the circuits make it public. */
-const AWS_ACTIVITIES = ['iam-role-trust-update', 'lambda-configuration-update', 'security-group-ingress'];
+const AWS_ACTIVITIES = AWS_OPERATIONS.map(entry => entry.id);
 
 export function claimFromPublicInputs(provider, bundle, { gcpBatches, claim } = {}) {
   if (provider === 'gcp' && gcpBatches) {
@@ -49,7 +51,13 @@ export function claimFromPublicInputs(provider, bundle, { gcpBatches, claim } = 
     if (!events || count('aws-identity-link-v1') !== events) return null;
     // The family names come from authenticated receipts that stay private; the public inputs prove one linked event
     // per family. So a grouped claim must list known families, in policy order, one per proven event.
-    const families = /^aws:activity:([a-z,-]+):iam-user$/.exec(claim ?? '')?.[1]?.split(',');
+    // An areas claim lists one skill area per proven event, in catalog order.
+    const areas = /^aws:areas:([0-9,]+):iam-user$/.exec(claim ?? '')?.[1]?.split(',').map(Number);
+    if (areas) {
+      const ordered = areas.every((n, i) => n >= 1 && n <= AWS_SKILL_AREAS.length && (!i || n > areas[i - 1]));
+      return { claim: ordered && areas.length === events ? claim : 'aws:areas:inconsistent:iam-user', window: 90 };
+    }
+    const families = /^aws:activity:([a-z0-9,-]+):iam-user$/.exec(claim ?? '')?.[1]?.split(',');
     if (families) {
       const ordered = families.every((id, i) => AWS_ACTIVITIES.includes(id) && (!i || AWS_ACTIVITIES.indexOf(id) > AWS_ACTIVITIES.indexOf(families[i - 1])));
       return { claim: ordered && families.length === events ? claim : 'aws:activity:inconsistent:iam-user', window: 90 };
@@ -68,6 +76,13 @@ export function describeClaim({ provider, claim, window }) {
       : `Google Cloud: activity observed in ${groups.split(',').length} skill group(s)${days}.`;
   }
   if (claim === 'aws:iam-role-trust-update:iam-user') return `AWS: an IAM user updated a role trust policy${days}.`;
+  const aws = /^aws:(activity|areas|groups):([a-z0-9,-]+):iam-user$/.exec(claim);
+  if (provider === 'aws' && aws) {
+    const items = aws[2].split(',');
+    const labels = aws[1] === 'activity' ? items.map(id => AWS_OPERATIONS.find(entry => entry.id === id)?.label)
+      : items.map(n => (aws[1] === 'areas' ? AWS_SKILL_AREAS : AWS_SKILL_GROUPS)[Number(n) - 1]?.label);
+    if (labels.every(Boolean)) return `AWS: an IAM user's activity verified in ${labels.join(', ')}${days}.`;
+  }
   return `${provider}: ${claim}${days}.`;
 }
 

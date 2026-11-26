@@ -51,6 +51,11 @@ test('gcp claim lists observed groups only; aws claim names the proved activity 
   assert.equal(grouped.claim, 'aws:activity:iam-role-trust-update,security-group-ingress:iam-user');
   for (const activities of [[], ['security-group-ingress', 'iam-role-trust-update'], ['iam-role-trust-update', 'iam-role-trust-update'], ['s3-put']])
     await assert.rejects(fromVerifiedBundle('aws', aws, { activities, attribution: 'iam-user', windowDays: 90 }, { pins: awsPins }), /aws activities/);
+  const pages = await fromVerifiedBundle('aws', aws, { attribution: 'iam-user', windowDays: 90,
+    observations: [{ group: 's3' }, { group: 'iam-access' }, { group: 's3' }] }, { pins: awsPins });
+  assert.match(pages.claim, /^aws:groups:1,[0-9]+:iam-user$/);
+  await assert.rejects(fromVerifiedBundle('aws', aws, { attribution: 'iam-user', windowDays: 90, observations: [{ group: 'mine' }] },
+    { pins: awsPins }), /aws observations/);
   await assert.rejects(fromVerifiedBundle('aws', gcp, {}, { pins: awsPins }), /does not match/);
   await assert.rejects(fromVerifiedBundle('gcp', gcp, { policy: { windowDays: 30 }, groups: [{ id: 'my-project', status: 'observed' }] },
     { pins: gcpPins }), /gcp group/);
