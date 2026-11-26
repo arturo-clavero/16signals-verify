@@ -9,8 +9,8 @@ assert.ok(process.argv[2], 'Pass the patched upstream extension package director
 const require = createRequire(resolve(process.argv[2], 'package.json'));
 const webpack = require('webpack');
 const provider = process.argv[3] ?? 'gcp';
-assert.ok(['gcp', 'aws'].includes(provider), 'Unknown private proof package.');
-const directory = fileURLToPath(new URL(provider === 'aws' ? '../aws/' : '.', import.meta.url));
+assert.ok(['gcp', 'aws', 'cloudflare'].includes(provider), 'Unknown private proof package.');
+const directory = fileURLToPath(new URL(provider === 'gcp' ? '.' : `../${provider}-private-proof/`, import.meta.url));
 const output = resolve(directory, 'dist/browser');
 const compiler = webpack({
   mode: 'production', target: 'webworker', devtool: false,
@@ -30,10 +30,10 @@ await new Promise((accept, reject) => compiler.close(error => error ? reject(err
 if (stats.hasErrors()) throw new Error(stats.toString({ all: false, errors: true }));
 // Match the extension's notices collector, including concatenated modules and worker chunks.
 const files = new Set();
-if (provider === 'aws') {
+if (provider !== 'gcp') {
   const client = await require('esbuild').build({
     entryPoints: [resolve(directory, 'browser-client.mjs')], bundle: true, format: 'esm', platform: 'browser',
-    outfile: resolve(process.argv[2], 'src/aws-private/browser-client.mjs'), metafile: true,
+    outfile: resolve(process.argv[2], `src/${provider}-private/browser-client.mjs`), metafile: true,
   });
   for (const file of Object.keys(client.metafile.inputs)) files.add(resolve(file));
 }
@@ -46,11 +46,11 @@ const record = module => {
 for (const chunk of stats.compilation.chunks)
   for (const module of stats.compilation.chunkGraph.getChunkModulesIterable(chunk)) record(module);
 await writeFile(resolve(directory, 'dist/browser-modules.json'), JSON.stringify([...files].sort()) + '\n');
-const manifest = JSON.parse(await readFile(resolve(directory, 'generated', provider === 'aws' ? 'pins.json' : 'artifacts.json'), 'utf8'));
+const manifest = JSON.parse(await readFile(resolve(directory, 'generated', provider === 'gcp' ? 'artifacts.json' : 'pins.json'), 'utf8'));
 await mkdir(resolve(output, 'artifacts'), { recursive: true });
 for (const pin of Object.values(manifest.circuits)) {
   await cp(resolve(directory, 'dist/artifacts', pin.file), resolve(output, 'artifacts', pin.file), { recursive: true });
-  if (provider === 'aws') await cp(resolve(directory, 'dist/artifacts', pin.keyFile), resolve(output, 'artifacts', pin.keyFile));
+  if (provider !== 'gcp') await cp(resolve(directory, 'dist/artifacts', pin.keyFile), resolve(output, 'artifacts', pin.keyFile));
 }
 for (const file of await readdir(output)) {
   if (!file.endsWith('.js')) continue;

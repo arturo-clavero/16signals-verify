@@ -1,5 +1,5 @@
 // Extension-origin storage only: one random opening per provider, never a transcript or identity.
-const valid = (provider, binding, secret) => ['gcp', 'aws'].includes(provider) &&
+const valid = (provider, binding, secret) => ['gcp', 'aws', 'cloudflare'].includes(provider) &&
   /^[0-9a-f]{64}$/.test(binding) && secret instanceof Uint8Array && secret.length === (provider === 'gcp' ? 32 : 16);
 
 async function database() {
