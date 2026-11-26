@@ -42,7 +42,7 @@ It prints one line per check and exits 0 when all pass, 1 when one fails, 2 on b
 | The provider is one these checks support | Shown only when it fails: the attestation names a provider with no descriptor, so nothing else about it can be checked |
 | Published proof bundle hashes to the signed proof hash | The bundle in the file is the one the signer saw |
 | Verification keys are the ones pinned in this repository | The proofs were made for these circuits, with these keys, and no others |
-| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private); Cloudflare claims (`cloudflare:groups:<positions>:user`) are checked for format and known skill-group positions |
+| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private); for Cloudflare (`cloudflare:groups:<positions>:user`) the public inputs do not determine the claim, so no recomputation runs and the claim rests on the signature (an unknown position only changes the headline) |
 
 Results:
 

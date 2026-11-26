@@ -1,27 +1,312 @@
+# 16signals-verify
+
+Prove facts about an AWS, Google Cloud or Cloudflare account without sharing credentials or raw data. A person signs in
+to the provider in their own browser. An extension collects evidence from that session and turns it into a small,
+signed claim, for example "this user changed IAM roles and Lambda functions in the last 90 days". Anyone can re-check
+the result offline. The proof can optionally be anchored on BNB Chain.
+
 > [!NOTE]
-> **This is a fork of [tlsnotary/tlsn-extension](https://github.com/tlsnotary/tlsn-extension)**, based on release
+> This is a fork of [tlsnotary/tlsn-extension](https://github.com/tlsnotary/tlsn-extension), based on release
 > `0.1.0.1501` (commit `68bbd38`). Upstream history is kept unchanged; this fork's work is merged on top of it.
+> Upstream's own README is kept in [docs/upstream.md](docs/upstream.md).
 >
-> On top of upstream, this fork adds:
-> - zero-knowledge private proofs generated in the browser, so raw data never leaves the user's machine
->   (`private-proof/`: Google Cloud, AWS and Cloudflare)
-> - built-in plugins, an origin-gated page API and proving-flow changes (`packages/extension`, `packages/plugin-sdk`)
-> - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
-> - anchoring of signed attestations on BNB Smart Chain through the BNB Attestation Service (`packages/bnb-anchor`)
->
-> Licensed like upstream: MIT or Apache-2.0, at your option.
+> Licensed like upstream: MIT or Apache-2.0, at your option ([`LICENSE-MIT`](LICENSE-MIT),
+> [`LICENSE-APACHE`](LICENSE-APACHE)).
+
+## The big picture
+
+Two jobs, kept apart:
+
+1. **Collect evidence.** The browser extension and a TLSNotary verifier server read activity from AWS, Google Cloud
+   or Cloudflare without exposing credentials or private data. Zero-knowledge proofs are made in the browser. The
+   result is a proof package: a signed attestation and, optionally, a public proof bundle.
+2. **Verify evidence.** [`proof-check`](packages/proof-check) is the reusable engine. It rechecks the signature, the
+   claim, the zero-knowledge proofs' pinned keys and, if used, the blockchain record. It runs as a command-line tool
+   or a library (another app or script checks a proof), and it powers the [verify page](verify/) (a website where
+   people upload and inspect a proof).
+
+Optionally, BNB anchoring records a proof's hash on-chain, so people can check that a proof matches the published
+record.
+
+```mermaid
+flowchart LR
+  U["User signed in to<br/>AWS / GCP / Cloudflare"] --> X["Extension<br/>(proofs made in the browser)"]
+  X <--> V["TLS verifier<br/>(servers/verifier)"]
+  V -->|signed receipt| S["Site backend<br/>(signs attestation)"]
+  X -->|proof bundle| S
+  S --> P["Proof package<br/>attestation + public bundle"]
+  P --> C["proof-check<br/>CLI / library"]
+  P --> W["verify page<br/>(static website)"]
+  P -.->|optional| B["BNB Chain<br/>(BAS record)"]
+  B -.-> W
+  B -.-> C
+```
+
+Collecting and verifying are separate jobs. Other projects can reuse the verification work without rebuilding the
+proof system.
+
+## What can another project reuse?
+
+Packages are not on npm yet. They are used from this repository (npm workspaces); npm packages are planned. The
+examples below import from the repository.
+
+### Verify existing AWS, GCP and Cloudflare proofs
+
+Plug in the provider descriptors and the pinned verification keys. There are no checks to rewrite.
+
+```js
+import { verifyCommitment, parseDropped, loadConfig } from './packages/proof-check/index.mjs';
+const { providers, keys } = await loadConfig(new URL('./verify/verify.config.json', import.meta.url), { readJson });
+const result = await verifyCommitment({ dropped: parseDropped(text), providers, keys });  // result.status, result.checks
+```
+
+`readJson(url)` reads JSON in your environment (`fetch` or `fs`). The same checks run from the command line:
+
+```sh
+node packages/proof-check/cli.mjs attestation.json [--bundle bundle.json]
+```
+
+Only attestations signed by a key in your `keys.json` are accepted, so you choose whom to trust.
+
+### Build a different verification website
+
+Use the same engine with your own design and language. Either mount the ready-made page into an element:
+
+```js
+import { mountVerify } from './verify/page.mjs';
+await mountVerify(document.getElementById('verify'), './verify.config.json');
+```
+
+or call `verifyCommitment` yourself and render the `checks` array. Each check has a stable `id` (`signature`,
+`provider`, `bundle`, `proof-hash`, `verification-keys`, `claim`), so you can show your own text per check. See
+[verify/README.md](verify/README.md) and [packages/proof-check/README.md](packages/proof-check/README.md).
+
+### Add new providers or checks
+
+Write three small things and pass them in:
+
+- a **descriptor** `{ id, kind, pins, claim, claimFromResult, describe }`: the evidence type, its pinned verification
+  keys, how to recompute the claim from the public inputs, and the headline to show;
+- a **registry** `{ findAttestations, findBundle }`, if attestations live somewhere other than a file (the BNB
+  registry is one);
+- **trusted keys**: the verifier public keys you accept.
+
+Only `id` is required in a descriptor. Details and the exact shapes are in
+[packages/proof-check/README.md](packages/proof-check/README.md); how a provider is organised is in
+[private-proof/README.md](private-proof/README.md).
+
+### Generate new proofs
+
+This is a separate integration. You can reuse the extension flows, but you configure your own site origin and
+verifier: copy [`fork/config.example.env`](fork/config.example.env) to `fork/config.env` and build the extension for
+your site ([Plug it into your project](#plug-it-into-your-project)). Cloudflare proofs need your own OAuth client
+(`FORK_CF_OAUTH_CLIENT_ID`). A genuinely new kind of proof (a new provider or a new claim) needs new circuits, a new
+plugin and a new descriptor.
+
+## Parts
+
+| Part | Folder | What it does | How to use |
+| --- | --- | --- | --- |
+| Extension | [`packages/extension`](packages/extension), [`fork/`](fork) | Chrome extension that runs the built-in proving plugins and exposes `window.tlsn.runBuiltIn()` to your page | `cp fork/config.example.env fork/config.env`, `npm ci && npm run build:fork`, load `fork/out/extension` unpacked |
+| Private proofs | [`private-proof/gcp`](private-proof/gcp), [`aws`](private-proof/aws), [`cloudflare`](private-proof/cloudflare) | Per provider: Noir circuits, the in-browser prover, the bundle verifier and the descriptor used by proof-check | [private-proof/README.md](private-proof/README.md) |
+| TLS verifier | [`servers/verifier`](servers/verifier) | Rust server that observes the TLS session, checks commitments and signs a receipt per proof | Docker or `cargo run`; see [servers/verifier/README.md](servers/verifier/README.md) |
+| proof-check | [`packages/proof-check`](packages/proof-check) | Rechecks signatures, claims, pinned proof keys and optional on-chain records; builds and signs attestations | `node packages/proof-check/cli.mjs ...` or `import` it |
+| BNB anchoring | [`packages/bnb-anchor`](packages/bnb-anchor) | Writes a signed attestation to BNB Chain through BAS and reads it back | `node packages/bnb-anchor/cli.mjs register \| publish \| read` |
+| Verify page | [`verify/`](verify) | Static page that checks a dropped file or a BNB attestation UID in the viewer's browser | Host the repository root; open `/verify/` |
+| Core pins | [`core/`](core) | Pinned, patched TLSNotary core used by the WASM prover and the verifier | `bash core/prepare-core.sh "$PWD/core/tlsn"` before a native verifier build |
+
+## Plug it into your project
+
+1. **Run a TLS verifier.** Build and run it with Docker (the build context is the repository root). The webhook
+   file maps the provider host to your backend; `*` matches any host.
+
+   ```sh
+   docker build -f servers/verifier/Dockerfile -t tlsn-verifier-server .
+   docker run -p 7047:7047 \
+     -v "$PWD/my-config.yaml:/app/config.yaml" \
+     -v "$PWD/attestor-key.json:/run/attestor-key.json:ro" \
+     -e TLSN_ATTESTOR_KEY_FILE=/run/attestor-key.json \
+     -e TLSN_ATTESTOR_KID='did:web:verifier.example.com#tlsn-attestor' \
+     tlsn-verifier-server
+   ```
+
+   `my-config.yaml` holds `webhooks: { "*": { url: "https://your-backend.example.com/webhook" } }`. With an attestor
+   key (an Ed25519 JWK) every webhook payload also carries a signed `receipt`; without one it carries none. Key
+   format, the `did:web` setup and the limits (`TLSN_MAX_SESSIONS`, `TLSN_MEMORY_BUDGET_MB`, ...) are in
+   [servers/verifier/README.md](servers/verifier/README.md). The built-in proxy is at `ws://<host>:7047/proxy`.
+
+2. **Build the extension for your site.** Set `FORK_PRODUCT_ORIGINS` (your page's origin), `FORK_KEY_FILE`,
+   `FORK_PLUGIN_DIR` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID` in `fork/config.env`, then
+   `npm ci && npm run build:fork`. Load `fork/out/extension` unpacked. With an empty config you get a development
+   build for pages on `http://localhost:5173` or `:5175`. See [Build for your site](docs/architecture.md#build-for-your-site).
+
+3. **Request a proof from your page.** On an allowed origin, in the top frame:
+
+   ```js
+   window.postMessage({ type: 'TLSN_RUN_BUILTIN', payload: {
+     pluginId: 'gcp-work',            // or 'aws-private-work', 'cloudflare-private-work'
+     fingerprint,                     // sha256 of the packaged plugin, from window.tlsn.builtInPlugins
+     verifierUrl, proxyUrl,           // your verifier and its proxy
+     params: JSON.stringify(params),  // the plugin's parameters
+     requestId,                       // your id; every reply carries it
+     sessionData,                     // optional, string values
+   } }, window.location.origin);
+   ```
+
+   `window.tlsn.runBuiltIn({...})` wraps this and returns the result or rejects with an error. Replies are window
+   messages with your `requestId`: `TLSN_RUN_BUILTIN_ACK` (private runs), progress events, then
+   `TLSN_RUN_BUILTIN_RESPONSE` with `{ success, result }` or `{ success: false, error }`. No ACK within 10 seconds
+   means the extension is missing or was reloaded.
+
+4. **Sign the attestation in your backend.** Check the proof bundle against the verifier's receipts with the
+   provider's `verify-bundle.mjs`, then build and sign the attestation with `fromVerifiedBundle`,
+   `createAttestation` and `signAttestation` from `proof-check` (see its
+   [publishing side](packages/proof-check/README.md#publishing-side)).
+
+5. **Check a proof.**
+
+   ```sh
+   node packages/proof-check/cli.mjs attestation.json --bundle bundle.json
+   ```
+
+   It prints one line per check. Exit code 0 means all checks passed, 1 a check failed, 2 bad input.
+
+6. **Optional: anchor on BNB Chain.**
+
+   ```sh
+   cd packages/bnb-anchor && npm ci
+   export BNB_PRIVATE_KEY=0x...        # funded account; BNB_NETWORK=bsc for mainnet (default: bsc-testnet)
+   node cli.mjs register               # once per network
+   node cli.mjs publish attestation.json
+   node cli.mjs read 0x<uid>
+   ```
+
+7. **Optional: host the verify page.** Serve the repository root and open `/verify/`
+   (`python3 -m http.server 8080`, then `http://localhost:8080/verify/`). Put your verifier's public key in
+   `verify/keys.json`. See [verify/README.md](verify/README.md).
+
+## Architecture
+
+One proof, end to end:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant P as Your page
+  participant E as Extension
+  participant V as TLS verifier
+  participant A as Provider API
+  participant S as Your backend
+  participant K as proof-check / verify page
+  participant B as BNB Chain (optional)
+  P->>E: TLSN_RUN_BUILTIN (plugin id, sha256, values)
+  E->>V: open a session
+  E->>A: TLS session, tunnelled through the verifier
+  Note over E,V: fixed framing revealed, private values committed as hashes
+  E->>E: zero-knowledge proofs, in the browser
+  V->>V: sign a receipt (Ed25519, did:web key)
+  V->>S: webhook: revealed bytes, commitments, signed receipt
+  E->>P: proof bundle
+  P->>S: proof bundle
+  S->>S: check bundle against receipts, sign attestation
+  S->>P: attestation (+ optional public bundle)
+  P->>K: attestation file
+  K->>K: check signature, claim, pinned keys
+  S-->>B: optional: anchor the attestation (BAS)
+  K-->>B: optional: look it up by UID
+```
+
+The pieces and how they connect:
+
+```mermaid
+flowchart LR
+  subgraph Browser
+    Page["Your page"]
+    Ext["Extension<br/>packages/extension"]
+    PP["private-proof/*<br/>circuits + prover"]
+  end
+  Ver["TLS verifier<br/>servers/verifier"]
+  Prov["Provider API"]
+  Back["Your backend"]
+  PC["proof-check"]
+  VP["verify page"]
+  BA["bnb-anchor"]
+  Chain["BNB Chain (BAS)"]
+  Page <--> Ext --> PP
+  Ext <--> Ver <--> Prov
+  Ver --> Back
+  Page --> Back
+  Back --> PC
+  PC --> VP
+  PC --> BA --> Chain
+  PP -. descriptors, pinned keys .-> PC
+```
+
+### How it works technically
+
+- **TLSNotary.** The extension runs a TLS session with the provider through a TLSNotary verifier, so the verifier
+  can vouch for what the provider sent without learning the private parts. These proofs use the verifier's Proxy
+  mode: the verifier opens the connection to the provider and the browser tunnels its TLS session through it. The
+  core is pinned and patched ([`core/`](core)).
+- **Selective disclosure.** Fixed text such as HTTP framing is revealed. Each private value is hashed with a random
+  blinder, `sha256(value || blinder)`, and only the hash goes to the verifier.
+- **Private ranges as commitments.** For each hash-committed range, the verifier's signed receipt (v2) holds a commit
+  leaf over the digest it checked for exactly that range. That ties the commitment a zero-knowledge proof later opens
+  to the TLS session. See [Signed receipts](servers/verifier/README.md#signed-receipts).
+- **Noir circuits and pinned keys.** Circuits prove, in the browser, that the committed values have the right
+  structure and meet the policy (for example a log entry is inside the window). Their verification keys are pinned by
+  hash in each provider's `generated/` folder, and the pins are checked by `proof-check`.
+- **Attestations and the bundle commitment.** The backend signs an Ed25519 attestation over a commitment: the
+  `sha256` of the canonical JSON of the provider, the claim, the proof hash (hash of the public bundle), and the
+  key hashes. See [docs/architecture.md](docs/architecture.md#data-flow-of-a-cloud-private-proof).
+- **BAS schema.** Anchoring writes one record per attestation to the BNB Attestation Service with the schema
+  `bytes32 commitment,string provider,string claim,uint16 window,string attestation`. See
+  [docs/bnb.md](docs/bnb.md).
+
+## Security model
+
+| Party | Sees | Signs or vouches for |
+| --- | --- | --- |
+| Provider | An ordinary session from the user's browser | Nothing |
+| TLS verifier | The user's IP address, hosts contacted, timing, traffic sizes, the revealed framing and the blinded hashes. Never the private values or blinders | A receipt over the ranges it witnessed (Ed25519, `did:web` key) |
+| Your backend | The claim, the proof bundle, the commitments | The attestation, after checking the bundle against the receipts |
+| Anyone with the attestation | The coarse claim, the commitment, the signature, and the bundle if it is shared (proofs and public inputs: blinded hashes, lengths of hidden values, the time cutoff) | Nothing |
+
+What a passed check means: a verifier key you trust signed exactly this claim, proof hash and pins; the published
+bundle is the one that was signed; the bundle uses the verification keys pinned in this repository; and, where the
+provider's descriptor can recompute the claim from the public inputs (GCP, AWS event runs), the claim matches them.
+
+What it does not mean:
+
+- **Trust in the verifier key.** The page and CLI take from the signature that the proofs came from a real TLS session
+  with the provider, that the public inputs match that session, and that the zero-knowledge proofs verify. They do
+  not re-run the zero-knowledge verifier. Anyone can run their own verifier and publish its key; you decide which
+  keys to trust.
+- **Proxy mode.** The verifier sees the provider's TLS records directly. A transcript is only as authentic as the
+  verifier that observed it.
+- **Pins.** Verification keys are pinned in this repository. A descriptor without `pins` only checks that the keys
+  cover the circuits used. A circuit bug is a bug in every proof made with it.
+- **Claims are coarse and positive.** A skill group that is not in the claim was not established, which is not evidence
+  of no activity. Claims say nothing about configuration correctness or outcomes.
+- **Cloudflare claims.** The public inputs do not determine the claim, so its descriptor has no claim recomputation;
+  the claim rests on the signature.
+- **GCP.** The name of the request header that carries the run's nonce is fixed by the circuit, so the proof only
+  accepts a transcript with that header.
+- **Compromised browsers.** The user's browser and machine are assumed not to be compromised.
+
+More: [docs/architecture.md](docs/architecture.md#trust-model).
 
 ## What BNB Chain does here
 
 A verified proof ends as a signed attestation: a small record saying which provider was checked, the coarse claim
-that was proven (for example the skill groups and their levels), the time window, a commitment to the private values,
-the proof hash and the verifier's Ed25519 signature. By default it is a file the user keeps.
+that was proven, the time window, a commitment to the private values, the proof hash and the verifier's Ed25519
+signature. By default it is a file the user keeps.
 
-BNB Smart Chain makes that record public and durable without anyone hosting the file. [`packages/bnb-anchor`](packages/bnb-anchor)
-writes the signed attestation into the BNB Attestation Service (BAS), the attestation contract and schema registry
-that BNB Chain already runs. This repository deploys no contract of its own: it registers one schema and writes one
-record per attestation. The [verify page](verify/) reads a record back by its BAS UID and runs exactly the checks it
-runs on a file.
+BNB Smart Chain makes that record public and durable without anyone hosting the file.
+[`packages/bnb-anchor`](packages/bnb-anchor) writes the signed attestation into the BNB Attestation Service (BAS), the
+attestation contract and schema registry that BNB Chain already runs. This repository deploys no contract of its own:
+it registers one schema and writes one record per attestation. The [verify page](verify/) reads a record back by its
+BAS UID and runs exactly the checks it runs on a file.
 
 - **What goes on chain:** only the signed attestation. Never a proof, a transcript, or an identifier of the user or
   their account.
@@ -31,542 +316,30 @@ runs on a file.
 
 Details, schema and commands: [docs/bnb.md](docs/bnb.md).
 
----
+## CROPS
 
-*The upstream README follows.*
+Censorship resistance, open source, privacy and security. Each point with its code and limits is in
+[docs/crops.md](docs/crops.md) and [docs/crops-compliance.md](docs/crops-compliance.md).
+
+- **Censorship resistance.** Signed attestations and public bundles are plain files the user keeps. A signed
+  attestation can also be anchored on BNB Smart Chain and read by its UID. [`verify/`](verify) is a static page
+  anyone can host, and anyone can run their own verifier from this repository.
+- **Open source.** MIT or Apache-2.0. Everything builds from this repository. `proof-check`, `bnb-anchor` and `verify/`
+  are plain ES modules with no build step.
+- **Privacy.** The provider sees an ordinary session. The verifier sees network metadata and blinded hashes, never the
+  private values. The verify page is static; a lookup by BNB Chain UID reads one record from a public RPC, which sees
+  the viewer's IP address and the UID.
+- **Security.** Attestations are Ed25519 signatures over a canonical commitment. Signing keys live only in the signer's
+  environment; public keys are listed in [`verify/keys.json`](verify/keys.json).
 
 ## Documentation
 
 - [Architecture](docs/architecture.md): components, data flow of a private proof, trust model, build
-- [CROPS](docs/crops.md): censorship resistance, open source, privacy and security, with trade-offs
-- [CROPS compliance](docs/crops-compliance.md): each guarantee with the code that enforces it, its test and its limits
-- [Verification](docs/verification.md): the verify page, verifier keys, hosting
-- [BNB Chain anchoring](docs/bnb.md): publishing attestations to BAS and looking them up on the verify page
-
-## CROPS
-
-- **Censorship resistance.** The fork's operator runs a TLSNotary verifier and holds an attestation signing key. If
-  either goes away, signed attestations and public proof bundles are plain files the user keeps and can share; a signed attestation can also be
-  anchored on BNB Smart Chain, where anyone can read it by its UID; and [`verify/`](verify/) is a static page anyone can host. Anyone can run their own verifier from this repository.
-- **Open source.** MIT or Apache-2.0 ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)). Everything
-  builds from this repository: the extension with `npm run build:fork`; [`packages/proof-check`](packages/proof-check), [`packages/bnb-anchor`](packages/bnb-anchor) and `verify/` are plain ES
-  modules with no build step.
-- **Privacy.** The provider sees an ordinary session from the user's browser. The verifier, in Proxy mode, sees the
-  user's IP address, the hosts contacted, timing and traffic sizes, and receives private values only as blinded hash
-  commitments. Anyone who receives a signed attestation sees the coarse claim, the commitment and the signature and, if the
-  user also shares the public bundle, its proofs and public inputs, which include blinded hashes, the lengths of
-  hidden values and the time cutoff, never transcripts or identifiers. The verify page is static; a lookup by BNB Chain
-  attestation UID reads that one record from a public RPC (which sees the viewer's IP address and the UID) and loads
-  viem from esm.sh.
-- **Security.** Attestations are Ed25519 signatures over a canonical commitment; signing keys live only in the
-  verifier's environment and public keys are listed in [`verify/keys.json`](verify/keys.json). Trust assumption: the
-  transcript is only as trustworthy as the TLSNotary verifier; anyone can run their own. The verify page checks the
-  signature, recomputes the commitment and the proof hash, and checks the claim against the proven public inputs
-  where they expose it; it does not yet re-run the zero-knowledge verifier, so proof validity rests on the signature.
-
-<img src="packages/extension/src/assets/img/icon-128.png" width="64"/>
-
-# TLSNotary Apps & Plugin Tooling
-
-The TLSNotary clients — a **Chrome extension** and a native **mobile app** (iOS + Android) that generate cryptographic proofs of API responses — plus a plugin SDK, a shared plugin registry, and a verifier server.
-
-Built on the [TLSNotary protocol](https://github.com/tlsnotary/tlsn) (the core MPC-TLS Rust implementation lives in that repo; this repo consumes it via [`tlsn-wasm`](https://www.npmjs.com/package/tlsn-wasm) and the native mobile prover).
-
-> [!IMPORTANT]
-> When running a client against a notary/verifier server, ensure the server's version matches the version of the client.
-
-## Table of Contents
-
-- [Clients](#clients)
-- [Demo](#demo)
-- [Tutorial](#tutorial)
-- [Monorepo Structure](#monorepo-structure)
-- [Architecture Overview](#architecture-overview)
-- [Getting Started](#getting-started)
-- [Development](#development)
-- [Production Build & Publishing](#production-build--publishing)
-- [End-to-End Testing](#end-to-end-testing)
-- [Websockify Integration](#websockify-integration)
-- [Building Plugins with Claude Code](#building-plugins-with-claude-code)
-- [Resources](#resources)
-- [License](#license)
-
-## Clients
-
-This monorepo ships **two TLSNotary clients** that share one plugin system, one plugin registry ([`@tlsn/plugins`](packages/plugins)), and the same verifier server:
-
-| Client                | Where                                      | Platforms               | Prover                                                                         |
-| --------------------- | ------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------ |
-| **Browser extension** | [`packages/extension`](packages/extension) | Chrome / Chromium (MV3) | WASM (`tlsn-wasm`) in an offscreen document                                    |
-| **Mobile app**        | [`app/mobile`](app/mobile)                 | iOS + Android           | Native Rust prover ([`packages/tlsn-mobile`](packages/tlsn-mobile)) via UniFFI |
-
-Both run the same JavaScript plugins (sandboxed in QuickJS WASM on the extension; evaluated with `new Function()` under Hermes on mobile), capture auth from a logged-in session, and produce selectively-disclosed proofs against a [verifier server](servers/verifier).
-
-## Demo
-
-**Browser extension** — try TLSNotary live at **[demo.tlsnotary.org](https://demo.tlsnotary.org)**: install the extension and run any of the bundled plugins against the hosted verifier.
-
-To run the extension demo locally (verifier + demo site via Docker):
-
-```bash
-npm run docker:up   # verifier on :7047, demo site on :80
-npm run docker:down
-```
-
-Or serve just the demo site against your own verifier:
-
-```bash
-npm run demo        # http://localhost:8080
-```
-
-**Mobile app** — build and launch on a simulator/emulator or device:
-
-```bash
-npm run mobile:ios       # build deps + native libs + launch iOS
-npm run mobile:android   # build deps + native libs + launch Android
-```
-
-The mobile app presents a plugin gallery (Swiss Bank, Spotify, Duolingo, Discord — work-in-progress plugins appear behind the Debug toggle), lets the user log in via an embedded WebView, and generates proofs with the native prover. See [`app/mobile/README.md`](app/mobile/README.md) for the full toolchain and build pipeline.
-
-### Environment Variables
-
-The extension demo uses `.env` files for configuration:
-
-- `.env` - Local development defaults (`localhost:7047`)
-- `.env.production` - Production settings (`demo.tlsnotary.org`, SSL enabled)
-
-For Docker deployments, override via environment variables:
-
-```bash
-# Local development (default)
-npm run docker:up
-
-# Production with custom verifier
-VITE_VERIFIER_HOST=verifier.example.com VITE_SSL=true docker compose up --build
-```
-
-For the mobile app, point plugins at a remote verifier by rebuilding them with `MOBILE_VERIFIER_URL` (see [`app/mobile/README.md`](app/mobile/README.md#running-the-verifier)).
-
-## Tutorial
-
-Want to write your own plugin? The [`tutorial`](packages/tutorial) package is an interactive 15-30 minute, hands-on walkthrough of building TLSNotary plugins — starting from a working Twitter plugin, then adapting it for a Swiss Bank balance proof (choosing what to reveal vs. redact). An optional "fool the verifier" challenge shows why careful server-side verification matters.
-
-```bash
-npm run tutorial
-
-# Open http://localhost:8080 in your browser
-```
-
-## Monorepo Structure
-
-This repository is an npm workspaces monorepo (`packages/*` and `app/*`) plus a Rust Cargo workspace (`servers/`):
-
-```
-tlsn-extension/
-├── packages/                # npm workspaces (TypeScript)
-│   ├── extension/           # Chrome Extension (Manifest V3) — browser client
-│   ├── plugin-sdk/          # SDK for developing/running TLSN plugins (QuickJS sandbox)
-│   ├── plugins/             # Shared plugins + registry, built for demo (browser) and mobile (Hermes)
-│   ├── common/              # Shared utilities (logging system)
-│   ├── demo/                # Extension demo frontend + Docker setup
-│   ├── tutorial/            # Tutorial examples for plugin development
-│   ├── eas-webhook/         # Demo service: turns verifier webhooks into EAS attestations
-│   ├── tlsn-mobile/         # Native Rust prover for mobile (iOS .xcframework + Android .so via UniFFI)
-│   ├── tlsn-wasm/           # Local TLSN WebAssembly build helper (optional)
-│   ├── tlsn-wasm-pkg/       # Output of the local WASM build (gitignored)
-│   └── ts-plugin-sample/    # Minimal TypeScript plugin sample
-│
-├── app/                     # npm workspaces (applications)
-│   └── mobile/              # React Native / Expo app — iOS + Android client
-│       ├── app/             # Expo Router screens (plugin gallery + runner)
-│       ├── components/tlsn/ # WebView login, native prover bridge, plugin renderer
-│       ├── modules/         # Expo native modules: tlsn-native (prover), quickjs-native
-│       └── build.sh         # Unified build script (JS deps + native libs + run)
-│
-├── servers/                 # Rust Cargo workspace (deployable servers)
-│   ├── verifier/            # WebSocket server for TLSNotary verification (:7047)
-│   └── swissbank/           # Fake Swiss bank with dashboard UI (demo target, :3000)
-│
-├── package.json             # Root npm workspace configuration
-└── README.md
-```
-
-### Package Details
-
-#### `extension` — Chrome Extension (Manifest V3)
-
-The browser client. Key features:
-
-- **Multi-Window Management**: Track multiple browser windows with request interception
-- **Request Interception**: Capture HTTP/HTTPS requests from managed windows
-- **Plugin Execution**: Run sandboxed JavaScript plugins using QuickJS (in an offscreen document)
-- **TLSN Overlay**: Visual display of intercepted requests
-
-Entry points: `Background` (service worker), `Content` (page injection + overlay), `Popup`, and `Offscreen` (DOM operations + WASM prover).
-
-#### `app/mobile` — Mobile App (iOS + Android)
-
-React Native / Expo client with a native Rust prover. Key features:
-
-- **Plugin gallery**: Select a plugin, log in via embedded WebView, generate a proof
-- **Native prover**: Rust ([`packages/tlsn-mobile`](packages/tlsn-mobile)) bridged via UniFFI — Swift/XCFramework on iOS, Kotlin/`.so` on Android
-- **Plugin execution**: Plugin JS is evaluated with `new Function()` under Hermes via the plugin SDK's `NativeFunctionEvaluator` (a vendored native QuickJS module exists in `modules/quickjs-native` but is not currently in the plugin execution path)
-
-See [`app/mobile/README.md`](app/mobile/README.md) for prerequisites, the build pipeline, and architecture.
-
-#### `plugins` — Shared Plugins & Registry
-
-Single source of truth for plugin code and metadata, consumed by both clients:
-
-- Plugin sources in `src/*.plugin.ts` and a shared `src/registry.ts` (per-plugin `platforms: ('demo' | 'mobile')[]`)
-- `build.js` produces two targets: `dist/demo/` (browser bundle for the extension) and `dist/mobile/` (Hermes-compatible `es2016`, no `async/await` in dynamically-evaluated code)
-
-#### `plugin-sdk` — Plugin Development SDK
-
-SDK for developing and running TLSN plugins with QuickJS sandboxing:
-
-- Secure JavaScript execution in an isolated environment
-- Host capability system for controlled plugin access
-- React-like hooks: `useHeaders()`, `useRequests()`, `useEffect()`, `useState()`, `setState()`
-- Isomorphic package for Node.js and browser environments, with full TypeScript declarations
-
-#### `common` — Shared Utilities
-
-Centralized logging system used across packages (`DEBUG`/`INFO`/`WARN`/`ERROR`, timestamped output, singleton).
-
-#### `tlsn-mobile` — Native Mobile Prover
-
-Rust prover compiled for mobile and bridged via UniFFI:
-
-- **iOS**: static library packaged as `TlsnMobile.xcframework` + Swift bindings (`build-ios.sh`)
-- **Android**: shared library `.so` + Kotlin bindings (`build-android.sh`)
-
-Built automatically by `app/mobile/build.sh`; only rebuild when changing the Rust code.
-
-#### `verifier` — Verifier Server (`servers/verifier`)
-
-Rust HTTP/WebSocket server for TLSNotary verification (shared by both clients):
-
-- `GET /health`, `WS /session`, `WS /verifier?sessionId=<id>`, `WS /proxy?token=<host>` (compatible with notary.pse.dev)
-- Webhook API for POST notifications, YAML config (`config.yaml`), CORS enabled
-- Runs on `localhost:7047` by default
-
-#### `demo` — Extension Demo Frontend
-
-React + Vite frontend (with Docker Compose: verifier + nginx) that drives the extension against the bundled plugins.
-
-#### `eas-webhook` — Demo Attestation Service
-
-Receives verifier webhooks and creates [EAS](https://attest.sh/) attestations on Sepolia testnet. Demo-only; see [`packages/eas-webhook/README.md`](packages/eas-webhook/README.md).
-
-#### `tlsn-wasm` — TLSN WebAssembly (local build helper)
-
-The extension depends on the published [`tlsn-wasm`](https://www.npmjs.com/package/tlsn-wasm) npm package by default. For local development against an unreleased `tlsn` revision, `packages/tlsn-wasm/build.sh` clones the `tlsn` repo and builds `packages/tlsn-wasm-pkg/` (gitignored). Run `npm link` from there and `npm link tlsn-wasm` inside `packages/extension` to override the published package.
-
-## Architecture Overview
-
-Both clients run the same plugins and talk to the same verifier; they differ only in how the plugin sandbox and the prover are hosted.
-
-### Extension Architecture
-
-The extension uses a message-passing architecture with five entry points:
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│                       Browser Extension                       │
-│                                                               │
-│  ┌──────────────┐      ┌──────────────┐                       │
-│  │  Background  │◄────►│   Content    │◄──── Page Scripts     │
-│  │    (SW)      │      │   Script     │                       │
-│  └──────┬───────┘      └──────────────┘                       │
-│         │                                                     │
-│         ├─► Window Management (WindowManager)                 │
-│         ├─► Request Interception (webRequest API)             │
-│         ├─► Session Management (SessionManager)               │
-│         └─► Message Routing                                   │
-│                                                               │
-│  ┌──────────────┐                                             │
-│  │   Offscreen  │  ← QuickJS plugin sandbox + WASM prover     │
-│  └──────────────┘                                             │
-└───────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-                   ┌──────────────┐
-                   │   Verifier   │
-                   │ (localhost:  │
-                   │    7047)     │
-                   └──────────────┘
-```
-
-**Opening a managed window:**
-
-```
-Page → window.tlsn.open(url)
-  ↓ window.postMessage(TLSN_OPEN_WINDOW)
-Content Script → browser.runtime.sendMessage(OPEN_WINDOW)
-Background → WindowManager.registerWindow() → browser.windows.create()
-```
-
-**Request interception:**
-
-```
-Browser → HTTP request in managed window
-  ↓ webRequest.onBeforeRequest
-Background → WindowManager.addRequest()
-  ↓ browser.tabs.sendMessage(UPDATE_TLSN_REQUESTS)
-Content Script → Update TLSN overlay UI
-```
-
-### Mobile Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                Mobile App (Expo / RN, Hermes)                │
-│                                                              │
-│  PluginScreen ──► MobilePluginHost (runs plugin JS)          │
-│      │                  │                                    │
-│      │  openWindow()    │  prove()                           │
-│      ▼                  ▼                                    │
-│  PluginWebView      NativeProver ──► Rust prover (UniFFI)    │
-│  (login + cookie/   (Swift / Kotlin)   packages/tlsn-mobile  │
-│   header capture)                                            │
-└──────────────────────────────────────────────────────────────┘
-                          │ MPC-TLS over WebSocket
-                          ▼
-                   ┌──────────────┐
-                   │   Verifier   │  (localhost:7047;
-                   │              │   10.0.2.2 on Android emulator)
-                   └──────────────┘
-```
-
-See [`app/mobile/README.md`](app/mobile/README.md#architecture) for the full plugin flow and native-bridge details.
-
-## Getting Started
-
-### Common Prerequisites
-
-- **Node.js** >= 18
-- **Rust** (for the verifier server and the native mobile prover) — install from [rustup.rs](https://rustup.rs/)
-
-### Extension Prerequisites
-
-- **Chrome/Chromium** browser
-
-### Mobile Prerequisites
-
-- **iOS**: Xcode (+ iOS simulator), CocoaPods
-- **Android**: Android Studio (SDK, emulator, JDK) and the **Android NDK**
-- Expo / EAS tooling (used via `npx`)
-
-Rust cross-compilation targets, `cargo-ndk`, and the `tlsn` repo are auto-installed by `app/mobile/build.sh`. See [`app/mobile/README.md`](app/mobile/README.md#prerequisites) for the full tables and environment setup.
-
-### Installation
-
-```bash
-git clone https://github.com/tlsnotary/tlsn-extension.git
-cd tlsn-extension
-npm install
-```
-
-This installs dependencies for all workspaces and sets up package links.
-
-## Development
-
-### Running the Verifier Server
-
-Both clients need a verifier. Run it in a separate terminal:
-
-```bash
-bash core/prepare-core.sh "$PWD/core/tlsn"   # once: the verifier builds against the pinned, patched core
-cd servers
-cargo run -p tlsn-verifier-server   # http://localhost:7047
-```
-
-**Verifier API endpoints:**
-
-- `GET /health` - Health check
-- `WS /session` - Create new verification session
-- `WS /verifier?sessionId=<id>` - WebSocket verification endpoint
-- `WS /proxy?token=<host>` - WebSocket proxy for TLS connections (compatible with notary.pse.dev)
-
-**Webhook configuration** — configure `servers/verifier/config.yaml` to receive POST notifications after successful verifications:
-
-```yaml
-webhooks:
-  'api.x.com':
-    url: 'https://your-backend.example.com/webhook/twitter'
-    headers:
-      Authorization: 'Bearer your-secret-token'
-  '*': # Wildcard for unmatched server names
-    url: 'https://your-backend.example.com/webhook/default'
-```
-
-### Extension Development
-
-```bash
-npm run dev   # builds deps, then webpack-dev-server on :3000 (HMR)
-```
-
-Then load it in Chrome:
-
-- Navigate to `chrome://extensions/`
-- Enable "Developer mode" (top right)
-- Click "Load unpacked" and select `packages/extension/build/`
-
-The extension auto-reloads on file changes (manual refresh needed for manifest changes).
-
-Package-specific scripts:
-
-```bash
-cd packages/extension
-npm run dev | test | test:watch | test:coverage | lint | lint:fix
-```
-
-### Mobile Development
-
-```bash
-npm run mobile:ios       # build deps + native libs + launch iOS
-npm run mobile:android   # build deps + native libs + launch Android
-```
-
-Or run the full pipeline from `app/mobile/` with options (`--no-run`, `--skip-deps`, `--rebuild-native`, `--clean`):
-
-```bash
-cd app/mobile
-./build.sh ios
-./build.sh android
-```
-
-Notes:
-
-- The verifier at `localhost:7047` is reachable as-is on the iOS simulator; on the Android emulator the app rewrites `localhost` to `10.0.2.2`.
-- The app uses native modules, so use `expo run:ios` / `expo run:android` (via `build.sh`) — **not** Expo Go.
-- Plugin code runs under Hermes, which can't parse `async/await` in dynamically-evaluated code; mobile plugins are compiled to `es2016`. If you see "async functions are unsupported", rebuild plugins: `npm run build:plugins`.
-
-See [`app/mobile/README.md`](app/mobile/README.md) for emulator clock sync, native logs, and troubleshooting.
-
-### Building Plugins
-
-Plugins live in [`packages/plugins`](packages/plugins) and are built for both clients:
-
-```bash
-npm run build:plugins   # writes dist/demo (browser) and dist/mobile (Hermes)
-```
-
-## Production Build & Publishing
-
-### Extension → Chrome Web Store
-
-From the repository root:
-
-```bash
-NODE_ENV=production npm run build
-```
-
-This builds dependencies, builds the extension with production optimizations, and creates `packages/extension/zip/extension-{version}.zip` (ready for the Chrome Web Store).
-
-The easiest way to install the extension is from the [Chrome Web Store](https://chromewebstore.google.com/detail/tlsn-extension/gcfkkledipjbgdbimfpijgbkhajiaaph). For the full release process (versioning, CI, store upload), see [`RELEASING.md`](RELEASING.md).
-
-### Mobile → App Store & Play Store
-
-Mobile builds and submissions run on **EAS** (Expo Application Services). In short:
-
-```bash
-cd app/mobile
-npx eas-cli build  --profile production --platform all
-npx eas-cli submit --profile production --platform all
-```
-
-For versioning (note the mobile-specific `0.1.AABB` scheme), credentials, and store promotion, see [`app/mobile/RELEASING.md`](app/mobile/RELEASING.md).
-
-### Build the Verifier for Production
-
-```bash
-bash core/prepare-core.sh "$PWD/core/tlsn"   # once: the verifier builds against the pinned, patched core
-cd servers
-cargo build --release -p tlsn-verifier-server   # binary in servers/target/release/
-```
-
-## End-to-End Testing
-
-To test the complete TLSN workflow with the **extension**:
-
-1. **Start the verifier** and confirm it's up:
-
-   ```bash
-   cd servers && cargo run -p tlsn-verifier-server
-   curl http://localhost:7047/health   # → ok
-   ```
-
-2. **Start the extension** in dev mode (`npm run dev`) and load `packages/extension/build/` in Chrome.
-
-3. **Run a test plugin** via the demo:
-
-   ```bash
-   npm run demo   # http://localhost:8080
-   ```
-
-   Select a plugin; it opens a managed window to the target site, intercepts requests, connects to the verifier, shows a progress overlay, and runs the proof.
-
-For the **mobile** end-to-end flow, start the verifier as above, then `npm run mobile:ios` / `npm run mobile:android` and run a plugin from the gallery.
-
-### Testing Tips
-
-- **Background service worker logs**: `chrome://extensions/` → Extension Details → "Inspect views: service worker"
-- **Multiple windows**: the extension supports up to 10 concurrent managed windows
-- **Mobile native logs**: `xcrun simctl spawn booted log stream | grep -i tlsn` (iOS) or `adb logcat | grep -i tlsn` (Android)
-- **Verifier connection**: ensure the verifier is reachable before running proofs
-
-## Websockify Integration
-
-For WebSocket proxying of TLS connections (optional):
-
-```bash
-git clone https://github.com/novnc/websockify && cd websockify
-./docker/build.sh
-
-# For X.com
-docker run -it --rm -p 55688:80 novnc/websockify 80 api.x.com:443
-```
-
-This proxies HTTPS connections through WebSocket for browser-based TLS operations.
-
-## Building Plugins with Claude Code
-
-This repo includes a [Claude Code](https://claude.ai/claude-code) slash command that scaffolds TLSNotary plugins interactively — API discovery, auth interception strategy, and a complete plugin file added to [`packages/plugins`](packages/plugins) (usable by both clients).
-
-### Install
-
-```bash
-# Add the TLSNotary marketplace
-/plugin marketplace add tlsnotary/tlsn-extension
-
-# Install the create-plugin command
-/plugin install tlsn-create-plugin@tlsnotary
-```
-
-### Usage
-
-```bash
-/create-plugin Garmin Connect badges
-/create-plugin Reddit karma score
-/create-plugin GitHub contribution count
-```
-
-See [`PLUGIN.md`](PLUGIN.md) for the plugin architecture, capabilities, and authoring guide.
-
-## Resources
-
-- [TLSNotary Documentation](https://docs.tlsnotary.org/)
-- [Chrome Extension Documentation](https://developer.chrome.com/docs/extensions/) · [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/intro/) · [webextension-polyfill](https://github.com/mozilla/webextension-polyfill)
-- [Expo Documentation](https://docs.expo.dev/) · [React Native](https://reactnative.dev/) · [EAS Build](https://docs.expo.dev/build/introduction/)
-- [App Store Connect](https://appstoreconnect.apple.com/) · [Google Play Console](https://play.google.com/console)
-
-## License
-
-This repository is licensed under either of:
-
-- [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
-- [MIT license](http://opensource.org/licenses/MIT)
-
-at your option.
+- [Verification](docs/verification.md): the verify page, checks, verifier keys, hosting
+- [BNB Chain anchoring](docs/bnb.md): publishing attestations to BAS and looking them up
+- [CROPS](docs/crops.md) and [CROPS compliance](docs/crops-compliance.md): each guarantee, the code that enforces it, its limits
+- Parts: [proof-check](packages/proof-check/README.md), [bnb-anchor](packages/bnb-anchor/README.md),
+  [verify page](verify/README.md), [private proofs](private-proof/README.md) ([GCP](private-proof/gcp/README.md),
+  [AWS](private-proof/aws/README.md), [Cloudflare](private-proof/cloudflare/README.md)),
+  [TLS verifier](servers/verifier/README.md)
+- [Upstream README](docs/upstream.md): the original tlsn-extension documentation
