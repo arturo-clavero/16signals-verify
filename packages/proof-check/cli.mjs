@@ -5,7 +5,7 @@
 // The attestation file holds a signed attestation, or { attestation, bundle }. Providers (and keys, unless --keys)
 // come from the config; the default is verify/verify.config.json in this repository. Prints one line per check.
 // Exit codes: 0 all checks passed, 1 a check failed, 2 bad input. With --proof, attested and not-applicable lines
-// never fail, and a check that could not run here (no DID document, no registry, no bb.js) also exits 2.
+// never fail, and a check that could not run here (no DID document, no bb.js) also exits 2.
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { parseDropped, verifyCommitment } from './check.mjs';

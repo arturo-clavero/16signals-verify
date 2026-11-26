@@ -121,7 +121,8 @@ test('Cloudflare: 1-3 pass, the claim is attested, ZK binds but needs bb.js, no 
   assert.equal(c['zk-proofs'].ok, null);
   assert.match(c['zk-proofs'].detail, /open the \d+ signed commitments/);
   assert.equal(c['on-chain'].ok, null);
-  assert.equal(r.status, 'partial');
+  assert.equal(c['on-chain'].reason, 'not-applicable');
+  assert.equal(r.status, 'partial'); // ZK cannot run without verification keys
   assert.equal(r.proofHash, await packageHash(pkg));
   assert.equal(r.claim, 'cloudflare:groups:1,2:user');
   assert.equal(packageLines(r).length, 7);
@@ -274,7 +275,7 @@ test('a provider without circuits: the claim is rebuilt from the disclosed bytes
   const c = byId(result);
   for (const id of ['receipt-signature', 'server-name', 'signed-root', 'claim-from-data']) assert.equal(c[id].ok, true, `${id}: ${c[id].detail}`);
   assert.equal(c['zk-proofs'].reason, 'not-applicable');
-  assert.equal(result.status, 'partial'); // only the on-chain check is open
+  assert.equal(result.status, 'verified'); // no registry: on-chain is not applicable
 
   const wrong = await run({ ...pkg, claim: 'example:status-404' }, { providers: [example] });
   assert.equal(byId(wrong)['claim-from-data'].ok, false);

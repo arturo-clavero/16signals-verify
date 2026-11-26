@@ -79,7 +79,8 @@ node packages/proof-check/cli.mjs --proof package.json [--did did.json] [--uid <
 | The zero-knowledge proofs verify and open every signed commitment | The hidden values satisfy the pinned circuits, and the proofs are about the committed values the verifier signed. The page loads `@aztec/bb.js` for this step only |
 | The package hash is in an on-chain record signed by a listed key | An attestation naming `sha256(canonical package)`, signed by a key in `keys.json`, is anchored on BNB Chain: look up its UID first, then drop the package |
 
-A line that could not run here (no DID document, no registry, no prover library) is shown as such; it is not a pass.
+A line that could not run here (no DID document, no prover library) is shown as such; it is not a pass. Without a
+registry the on-chain line is not applicable: anchoring is optional.
 The package format and options are in the [package README](../packages/proof-check/README.md#proof-packages).
 
 ## Publishing a verifier key

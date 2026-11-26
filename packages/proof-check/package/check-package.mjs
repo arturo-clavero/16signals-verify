@@ -173,7 +173,7 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
   let c6;
   const lookups = registries.filter(registry => typeof registry?.findByProofHash === 'function');
   if (expectedHash !== undefined && expectedHash !== proofHash) c6 = check('on-chain', false, `the published claim names ${String(expectedHash)}, the package hashes to ${proofHash}`);
-  else if (!lookups.length) c6 = check('on-chain', null, `no registry to look up ${proofHash} in`);
+  else if (!lookups.length) c6 = check('on-chain', null, 'no registry configured: on-chain anchoring is optional', SETTLED_REASONS.NOT_APPLICABLE);
   else {
     const found = (await Promise.all(lookups.map(registry => registry.findByProofHash({ proofHash }).catch(() => [])))).flat();
     const known = new Map((keys?.keys ?? []).map(key => [key.id, key]));
