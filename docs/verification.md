@@ -49,7 +49,7 @@ Results:
 | Status | Meaning |
 | --- | --- |
 | Verified | All checks passed |
-| Signed by the verifier (public proof bundle not available) | The signature checks out; there is no public bundle to check the proof hash and claim against |
+| Signed by the issuer (drop the public proof bundle or the proof package to re-check the proofs) | The signature checks out; there is no public bundle to check the proof hash and claim against |
 | Does not verify | An attestation was found but a check failed |
 | No attestation found | The dropped file holds no signed attestation |
 

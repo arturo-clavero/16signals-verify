@@ -11,7 +11,7 @@ const text = (tag, value, className) => Object.assign(document.createElement(tag
 
 const STATUS = {
   'verified': ['✓ Verified', 'ok'],
-  'signature-only': ['✓ Signed by the verifier (public proof bundle not available)', 'warn'],
+  'signature-only': ['✓ Signed by the issuer (drop the public proof bundle or the proof package to re-check the proofs)', 'warn'],
   'failed': ['✗ Does not verify', 'bad'],
   'not-found': ['✗ No attestation found for this commitment', 'bad'],
 };

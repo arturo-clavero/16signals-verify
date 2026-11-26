@@ -231,7 +231,7 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
   if (!c4) {
     const bundles = proofGroups.map(group => group.find(({ run }) => run.zk !== null && run.zk !== undefined)?.run.zk).filter(Boolean);
     let derived = null;
-    if (typeof descriptor.claim === 'function' && bundles.length === 1) {
+    if (descriptor.claimFromProofs === true && typeof descriptor.claim === 'function' && bundles.length === 1) {
       try { derived = descriptor.claim(publicBundle(bundles[0]), { claim: pkg.claim })?.claim ?? null; } catch { /* undetermined */ }
     }
     const rebuildable = typeof derived === 'string';

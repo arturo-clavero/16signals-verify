@@ -309,7 +309,8 @@ What it does not mean:
   inputs. AWS page runs and Cloudflare: the public inputs bind hashes and lengths of the hidden values, not the skill
   group each row belongs to, so the claim rests on the issuer's signature (an attestation over the package hash,
   signed by a key you trust); without one the package's claim reads *attested*. AWS event runs: the public inputs fix
-  one proven event per listed activity, not which activity.
+  one proven event per listed activity, not which activity, so in a proof package their claim also rests on the
+  issuer's signature.
 - **GCP.** The name of the request header that carries the run's nonce is fixed by the circuit, so the proof only
   accepts a transcript with that header.
 - **Compromised browsers.** The user's browser and machine are assumed not to be compromised.

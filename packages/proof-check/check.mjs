@@ -13,6 +13,8 @@ import { isProofPackage } from './package/check-package.mjs';
  * @property {Pins | (() => Pins | Promise<Pins>)} [pins] Pinned verification keys, or a loader for them.
  * @property {(bundle: PublicBundle, opts: { claim?: string }) => ClaimWindow | null} [claim] Recomputes the claim from
  *   the bundle's public inputs; `opts.claim` is the signed claim. Null when the public inputs do not determine it.
+ * @property {boolean} [claimFromProofs] True when `claim` fully determines the claim from the proofs' public inputs, so a
+ *   proof package's claim check may rest on it (not only check it for consistency).
  * @property {(result: unknown) => ClaimWindow} [claimFromResult] Claim for a result of the provider's own bundle
  *   verifier; used by `fromVerifiedBundle` when publishing.
  * @property {(claim: { provider: string, claim: string, window?: number }) => string | null} [describe] Plain-language

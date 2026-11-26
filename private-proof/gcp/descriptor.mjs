@@ -8,6 +8,7 @@ const days = window => (window ? ` in the last ${window} days` : '');
 
 export default Object.freeze({
   id: 'gcp',
+  claimFromProofs: true,
   kind: 'GCP_PRIVATE_RESULT',
   pins,
   /** TLS hosts by position in a proof: the identity session, then the log reads. */
