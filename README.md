@@ -285,8 +285,9 @@ flowchart LR
 | Anyone with the attestation | The coarse claim, the commitment, the signature, and the bundle if it is shared (proofs and public inputs: blinded hashes, lengths of hidden values, the time cutoff) | Nothing |
 
 What a passed proof-package check means: a TLS verifier whose key you trust witnessed sessions with the provider's
-hosts; the disclosed data and commitments are exactly what it signed; and the zero-knowledge proofs verify against
-the pinned keys and open those signed commitments. The checker re-runs the proofs itself.
+hosts; the disclosed data and commitments are exactly what it signed; the zero-knowledge proofs verify against the
+pinned keys and open those signed commitments; and the claim follows from the proofs (Google Cloud) or is signed by an
+issuer key you trust (AWS page runs, Cloudflare). The checker re-runs the proofs itself.
 
 What a passed attestation check means: a key you trust signed exactly this claim, proof hash and pins; the published
 bundle is the one that was signed; the bundle uses the verification keys pinned in this repository; and, where the
@@ -304,14 +305,22 @@ What it does not mean:
   cover the circuits used. A circuit bug is a bug in every proof made with it.
 - **Claims are coarse and positive.** A skill group that is not in the claim was not established, which is not evidence
   of no activity. Claims say nothing about configuration correctness or outcomes.
-- **Claims from data.** No provider rebuilds its readable claim from the disclosed bytes yet (`claimFromData`), so
-  that check reads "not applicable". For Cloudflare the public inputs do not determine the skill groups either, so
-  its claim rests on the signature.
+- **Where the claim comes from.** Google Cloud: the observed groups and window are rebuilt from the proofs' public
+  inputs. AWS page runs and Cloudflare: the public inputs bind hashes and lengths of the hidden values, not the skill
+  group each row belongs to, so the claim rests on the issuer's signature (an attestation over the package hash,
+  signed by a key you trust); without one the package's claim reads *attested*. AWS event runs: the public inputs fix
+  one proven event per listed activity, not which activity.
 - **GCP.** The name of the request header that carries the run's nonce is fixed by the circuit, so the proof only
   accepts a transcript with that header.
 - **Compromised browsers.** The user's browser and machine are assumed not to be compromised.
 
 More: [docs/architecture.md](docs/architecture.md#trust-model).
+
+## Roadmap
+
+- **AWS and Cloudflare claims from the proofs.** Make the row circuits output each proven row's skill group (the
+  catalog position of the row's operation) as a public input. The claim then follows from the proofs for every
+  provider, and the issuer's signature is no longer needed for it.
 
 ## What BNB Chain does here
 

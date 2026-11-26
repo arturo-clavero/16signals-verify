@@ -67,7 +67,7 @@ transcript pieces as leaf hashes, commitment digests or, when the claim needs th
 zero-knowledge proofs over the hidden values. Drop one on the page, or run
 
 ```sh
-node packages/proof-check/cli.mjs --proof package.json [--did did.json] [--uid <BAS uid>]
+node packages/proof-check/cli.mjs --proof package.json [--did did.json] [--attestation attestation.json] [--uid <BAS uid>]
 ```
 
 | Check | What it establishes |
@@ -75,7 +75,7 @@ node packages/proof-check/cli.mjs --proof package.json [--did did.json] [--uid <
 | Every receipt is signed by the key in the issuer's DID document | The verifier named by the receipt's `kid` signed each session's server name, time and Merkle root. The key comes from `keys.json` (`dids`), `--did`, or, on the page, the issuer's `/.well-known/did.json` |
 | Every receipt names a host of the provider | Each session was with a host the provider descriptor lists (`hosts`), for its position in the proof |
 | The published pieces rebuild the signed Merkle root | The package's pieces are exactly the ranges the verifier signed |
-| The claim follows from the disclosed data | The descriptor rebuilt the claim from the disclosed bytes. When the package discloses none, the line reads *attested*: the claim is taken from the issuer |
+| The claim follows from the proofs or the disclosed data, or is signed by a listed issuer key | The claim was rebuilt from the disclosed bytes, or from the public inputs of the zero-knowledge proofs once they verify (Google Cloud). Otherwise a key in `keys.json` signed an unexpired attestation of exactly this package hash, provider and claim (AWS page runs, Cloudflare): dropped with the package as `{ package, attestation }`, given with `--attestation`, or the on-chain record. Without either, the line reads *attested*: the claim is the package's own, taken from the issuer |
 | The zero-knowledge proofs verify and open every signed commitment | The hidden values satisfy the pinned circuits, and the proofs are about the committed values the verifier signed. The page loads `@aztec/bb.js` for this step only |
 | The package hash is in an on-chain record signed by a listed key | An attestation naming `sha256(canonical package)`, signed by a key in `keys.json`, is anchored on BNB Chain: look up its UID first, then drop the package |
 
