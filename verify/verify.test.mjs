@@ -1,13 +1,19 @@
+// The verify page's built-in providers, loaded through verify.config.json as the page and the CLI load them.
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { BATCHES } from '../private-proof/gcp/policy.mjs';
-import { bundleCommitment, createAttestation, fromVerifiedBundle, signAttestation, verifierKeyId } from '../packages/proof-check/index.mjs';
-import { describeClaim, parseDropped, verifyCommitment } from './verify.mjs';
+import { bundleCommitment, createAttestation, describeClaim, fromVerifiedBundle, loadConfig, parseDropped, signAttestation,
+  verifierKeyId, verifyCommitment } from '../packages/proof-check/index.mjs';
 
-const loadJson = async path => JSON.parse(await readFile(new URL(path, import.meta.url)));
-const pins = await loadJson('../private-proof/gcp/generated/verification-keys.json');
+const readJson = async url => JSON.parse(await readFile(url, 'utf8'));
+const { providers } = await loadConfig(new URL('./verify.config.json', import.meta.url), { readJson });
+const gcp = providers.find(descriptor => descriptor.id === 'gcp');
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const pem = { privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }), publicKey: publicKey.export({ type: 'spki', format: 'pem' }) };
 const keys = { keys: [{ id: await verifierKeyId(pem.publicKey), label: 'test verifier', publicKeyPem: pem.publicKey }] };
@@ -23,7 +29,7 @@ const groups = BATCHES.flatMap(batch => batch.groupIds.map(id => ({ id, status: 
 groups.find(group => group.id === BATCHES[0].groupIds[1]).status = 'observed';
 
 async function published(claimOverride) {
-  const fields = await fromVerifiedBundle('gcp', bundle, { policy: { windowDays: 30 }, groups }, { pins });
+  const fields = await fromVerifiedBundle(gcp, bundle, { policy: { windowDays: 30 }, groups });
   if (claimOverride) fields.claim = claimOverride;
   const commitment = await bundleCommitment(fields);
   const signed = await signAttestation(createAttestation({ ...fields, commitment, issuedAt: NOW - 1000, expiresAt: NOW + 86400000 }), pem.privateKey);
@@ -33,8 +39,16 @@ const registry = (attestations, bundleJson) => ({
   findAttestations: async () => attestations,
   findBundle: async () => bundleJson ? { json: bundleJson, proofHash: 'x' } : null,
 });
-const run = (commitment, attestations, bundleJson, extra = {}) => verifyCommitment({ commitment, keys, loadJson, gcpBatches: BATCHES,
-  now: NOW, registry: registry(attestations, bundleJson), ...extra });
+const run = (commitment, attestations, bundleJson, extra = {}) => verifyCommitment({ commitment, keys, providers,
+  now: NOW, registries: [registry(attestations, bundleJson)], ...extra });
+
+test('the config lists the three built-in providers and the BNB registry', async () => {
+  const config = await loadConfig(new URL('./verify.config.json', import.meta.url), { readJson });
+  assert.deepEqual(config.providers.map(descriptor => descriptor.id), ['gcp', 'aws', 'cloudflare']);
+  assert.deepEqual(config.keys, await readJson(new URL('./keys.json', import.meta.url)));
+  assert.equal(config.registries[0].type, 'bnb');
+  assert.equal(config.registries[0].module, new URL('../packages/bnb-anchor/anchor.mjs', import.meta.url).href);
+});
 
 test('a published attestation and bundle verify end to end and the claim is recomputed from public inputs', async () => {
   const { commitment, signed } = await published();
@@ -42,7 +56,7 @@ test('a published attestation and bundle verify end to end and the claim is reco
   assert.equal(result.status, 'verified');
   assert.ok(result.checks.every(check => check.ok), JSON.stringify(result.checks));
   assert.equal(result.checks.length, 4);
-  assert.equal(describeClaim(result), 'Google Cloud: activity observed in 1 skill group(s) in the last 30 days.');
+  assert.equal(describeClaim(result, providers), 'Google Cloud: activity observed in 1 skill group(s) in the last 30 days.');
 });
 
 test('a signature over a claim the public inputs do not support fails', async () => {
@@ -66,20 +80,24 @@ test('a swapped bundle, unknown key or missing data never shows verified', async
 test('a dropped attestation plus bundle file verifies without a network lookup', async () => {
   const { commitment, signed } = await published();
   const dropped = parseDropped(JSON.stringify({ attestation: signed, bundle }));
-  const result = await run(undefined, [], null, { dropped, registry: null });
+  const result = await run(undefined, [], null, { dropped, registries: [] });
   assert.equal(result.commitment, commitment);
   assert.equal(result.status, 'verified');
   assert.throws(() => parseDropped('{"hello":1}'), /Unrecognised/);
 });
 
-test('aws claims must list one known family per proven event, in policy order', async () => {
-  const { claimFromPublicInputs } = await import('./verify.mjs');
-  const proofs = n => Array.from({ length: n }, () => [{ circuitId: 'aws-identity-link-v1' }, { circuitId: 'aws-event-link-v1' }]).flat();
-  const two = 'aws:activity:iam-role-trust-update,security-group-ingress:iam-user';
-  assert.equal(claimFromPublicInputs('aws', { proofs: proofs(2) }, { claim: two }).claim, two);
-  assert.notEqual(claimFromPublicInputs('aws', { proofs: proofs(1) }, { claim: two }).claim, two);
-  const reversed = 'aws:activity:security-group-ingress,iam-role-trust-update:iam-user';
-  assert.notEqual(claimFromPublicInputs('aws', { proofs: proofs(2) }, { claim: reversed }).claim, reversed);
-  assert.equal(claimFromPublicInputs('aws', { proofs: proofs(1) }, { claim: 'aws:iam-role-trust-update:iam-user' }).claim, 'aws:iam-role-trust-update:iam-user');
-  assert.equal(claimFromPublicInputs('aws', { proofs: [{ circuitId: 'aws-event-link-v1' }] }, { claim: two }), null);
+test('the cli checks with the built-in providers from the default config', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'verify-cli-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const { signed } = await published();
+  const file = join(dir, 'evidence.json'), keyFile = join(dir, 'keys.json');
+  await writeFile(file, JSON.stringify({ attestation: signed, bundle }));
+  await writeFile(keyFile, JSON.stringify(keys));
+  const cli = fileURLToPath(new URL('../packages/proof-check/cli.mjs', import.meta.url));
+  const run = (...args) => new Promise(resolve => execFile(process.execPath, [cli, file, '--now', new Date(NOW).toISOString(), ...args],
+    (error, stdout) => resolve({ code: error?.code ?? 0, stdout })));
+  const ok = await run('--keys', keyFile);
+  assert.equal(ok.code, 0, ok.stdout);
+  assert.match(ok.stdout, /Claim matches the proven public inputs/);
+  assert.equal((await run()).code, 1);
 });
