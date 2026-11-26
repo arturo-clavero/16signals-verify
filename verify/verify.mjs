@@ -2,9 +2,11 @@
 import { bundleCommitment, proofHash, publicBundle, verifyAttestation } from '../crops/proof-bundle/index.mjs';
 import { AWS_OPERATIONS, AWS_SKILL_AREAS } from '../private-proof/aws/operation-catalog.mjs';
 import { AWS_SKILL_GROUPS } from '../private-proof/aws/skill-groups.mjs';
+import { CLOUDFLARE_SKILL_GROUPS } from '../private-proof/cloudflare/skill-groups.mjs';
 
 const HEX64 = /^[0-9a-f]{64}$/;
-const VK_PINS = { gcp: '../private-proof/gcp/generated/verification-keys.json', aws: '../private-proof/aws/generated/pins.json' };
+const VK_PINS = { gcp: '../private-proof/gcp/generated/verification-keys.json', aws: '../private-proof/aws/generated/pins.json',
+  cloudflare: '../private-proof/cloudflare/generated/pins.json' };
 
 /** What this page cannot check and therefore takes from the verifier's signature. */
 export const RESTS_ON_SIGNATURE = Object.freeze([
@@ -76,6 +78,11 @@ export function describeClaim({ provider, claim, window }) {
       : `Google Cloud: activity observed in ${groups.split(',').length} skill group(s)${days}.`;
   }
   if (claim === 'aws:iam-role-trust-update:iam-user') return `AWS: an IAM user updated a role trust policy${days}.`;
+  const cf = /^cloudflare:groups:([0-9,]+):user$/.exec(claim);
+  if (provider === 'cloudflare' && cf) {
+    const labels = cf[1].split(',').map(n => CLOUDFLARE_SKILL_GROUPS[Number(n) - 1]?.label);
+    if (labels.every(Boolean)) return `Cloudflare: account activity verified in ${labels.join(', ')}${days}.`;
+  }
   const aws = /^aws:(activity|areas|groups):([a-z0-9,-]+):iam-user$/.exec(claim);
   if (provider === 'aws' && aws) {
     const items = aws[2].split(',');

@@ -8,6 +8,7 @@ import { fromVerifiedBundle, proofHash, publicBundle, vkHashesFor } from './clou
 const json = path => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const gcpPins = json('../../private-proof/gcp/generated/verification-keys.json');
 const awsPins = json('../../private-proof/aws/generated/pins.json');
+const cfPins = json('../../private-proof/cloudflare/generated/pins.json');
 const entry = (circuitId, inputs = ['1', '0x2']) => ({ circuitId, proof: 'AAAA', publicInputs: inputs });
 const SESSIONS = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'];
 const gcp = { kind: 'GCP_PRIVATE_RESULT', version: 1, sessionIds: SESSIONS,
@@ -59,4 +60,15 @@ test('gcp claim lists observed groups only; aws claim names the proved activity 
   await assert.rejects(fromVerifiedBundle('aws', gcp, {}, { pins: awsPins }), /does not match/);
   await assert.rejects(fromVerifiedBundle('gcp', gcp, { policy: { windowDays: 30 }, groups: [{ id: 'my-project', status: 'observed' }] },
     { pins: gcpPins }), /gcp group/);
+});
+
+test('cloudflare claim lists the proven skill groups by catalog position', async () => {
+  const id = Object.keys(cfPins.circuits)[0];
+  const cf = { kind: 'CLOUDFLARE_PRIVATE_RESULT', version: 1, sessionIds: SESSIONS, proofs: [entry(id)] };
+  const fields = await fromVerifiedBundle('cloudflare', cf, { attribution: 'cloudflare-user', windowDays: 90,
+    observations: [{ group: 'kv' }, { group: 'workers-deploy' }, { group: 'kv' }] }, { pins: cfPins });
+  assert.equal(fields.claim, 'cloudflare:groups:1,3:user');
+  await assert.rejects(fromVerifiedBundle('cloudflare', cf, { attribution: 'cloudflare-user', windowDays: 90, observations: [{ group: 'x' }] },
+    { pins: cfPins }), /cloudflare result/);
+  await assert.rejects(fromVerifiedBundle('cloudflare', aws, {}, { pins: cfPins }), /does not match/);
 });

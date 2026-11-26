@@ -1,9 +1,10 @@
-// Adapter from private-proof/{gcp,aws}/verify-bundle.mjs results to commitment fields.
+// Adapter from private-proof/{gcp,aws,cloudflare}/verify-bundle.mjs results to commitment fields.
 import { canonicalize, commitmentFields, sha256Hex } from './commitment.mjs';
 import { AWS_OPERATIONS, AWS_SKILL_AREAS } from '../../private-proof/aws/operation-catalog.mjs';
 import { AWS_SKILL_GROUPS } from '../../private-proof/aws/skill-groups.mjs';
+import { CLOUDFLARE_SKILL_GROUPS } from '../../private-proof/cloudflare/skill-groups.mjs';
 
-const KINDS = { gcp: 'GCP_PRIVATE_RESULT', aws: 'AWS_PRIVATE_RESULT' };
+const KINDS = { gcp: 'GCP_PRIVATE_RESULT', aws: 'AWS_PRIVATE_RESULT', cloudflare: 'CLOUDFLARE_PRIVATE_RESULT' };
 const FIELD = /^(?:0x[0-9a-f]{1,64}|0|[1-9][0-9]{0,19})$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const fail = reason => { throw new Error(`PROOF_BUNDLE_INVALID: ${reason}`); };
@@ -31,7 +32,7 @@ export async function proofHash(bundle) {
 
 /**
  * Verification-key hashes for the circuits a bundle uses, from the repo's pinned manifests:
- * private-proof/gcp/generated/verification-keys.json (`sha256`) or private-proof/aws/generated/pins.json (`keySha256`).
+ * private-proof/gcp/generated/verification-keys.json (`sha256`) or private-proof/{aws,cloudflare}/generated/pins.json (`keySha256`).
  */
 export function vkHashesFor(bundle, pins) {
   const circuits = pins?.circuits;
@@ -79,6 +80,14 @@ function claimOf(provider, result) {
     const areas = AWS_SKILL_AREAS.map(area => area.id);
     const positions = acts.map(id => areas.indexOf(AWS_OPERATIONS.find(entry => entry.id === id).skillArea) + 1);
     return { claim: `aws:areas:${positions.join(',')}:${result.attribution}`, window: result.windowDays };
+  }
+  if (provider === 'cloudflare') {
+    // Audit-log page runs: the skill groups with at least one proven row, as 1-based catalog positions.
+    const groups = CLOUDFLARE_SKILL_GROUPS.map(group => group.id), rows = result?.observations;
+    if (result?.attribution !== 'cloudflare-user' || !Number.isInteger(result?.windowDays) || !Array.isArray(rows) || !rows.length ||
+        rows.some(row => !groups.includes(row?.group))) fail('cloudflare result');
+    const positions = [...new Set(rows.map(row => groups.indexOf(row.group) + 1))].sort((a, b) => a - b);
+    return { claim: `cloudflare:groups:${positions.join(',')}:user`, window: result.windowDays };
   }
   return fail('provider');
 }
