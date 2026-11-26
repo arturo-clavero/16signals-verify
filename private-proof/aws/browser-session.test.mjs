@@ -2,9 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { awsPrivateCredentials, signAwsPrivateRequest, readAwsPrivateResponse, createAwsLocalSession } from './browser-session.mjs';
 import { identityFixture } from './identity-fixture.mjs';
-import { eventFixture, activityEventFixture, syntheticWitness } from './event-fixture.mjs';
-import { AWS_MAX_EVENT_SESSIONS } from './sessions.mjs';
-import { AWS_LIMITS } from './request.mjs';
+import { syntheticWitness } from './event-fixture.mjs';
 import { pageActivity, pageLookup } from './page-run-fixture.mjs';
 import { fixtureExpected, fixtureNow } from './event-fixture.mjs';
 
@@ -16,9 +14,8 @@ const attempt = () => ({ proofId: '22222222-2222-4222-8222-222222222222', plugin
 const capture = () => ({ credentials: credentials(), accountId: '111122223333' });
 const body = fixture => new TextDecoder().decode(syntheticWitness(fixture).recv).split('\r\n\r\n')[1];
 const identity = () => body(identityFixture({ fields: { Path: '/', UserName: 'synthetic', Arn: 'arn:aws:iam::111122223333:user/synthetic' } }));
-const event = options => body(eventFixture(options));
 const failed = operation => assert.rejects(operation, { message: 'AWS_PRIVATE_COLLECTION_FAILED' });
-const collector = fetchAws => createAwsLocalSession({ attempt: attempt(), pages: false, fetchAws, now: () => now });
+const collector = fetchAws => createAwsLocalSession({ attempt: attempt(), fetchAws, now: () => now });
 
 test('WebCrypto signatures match offline botocore IAM and CloudTrail vectors', async () => {
   // botocore SigV4Auth, frozen 2026-10-29T08:00:00Z, explicit synthetic credentials; no network.
@@ -89,103 +86,15 @@ test('discovery preserves only the fixed permission diagnostic and consumes the 
   const local = collector(async () => ++calls === 1 ? new Response(identity()) : new Response(
     JSON.stringify({ __type: 'AccessDeniedException', message: 'PRIVATE_ARN_SENTINEL' }), { status: 400 }));
   await assert.rejects(local.prepare(capture()), { message: 'AWS_ACTIVITY_ACCESS_REQUIRED' });
-  assert.equal(calls, 2);
+  const denied = calls;
   await failed(local.prepare(capture()));
-  assert.equal(calls, 2);
+  assert.equal(calls, denied);
 });
 
-test('local discovery is one Username query whose signed native requests name only the selected event', async () => {
-  const calls = [];
-  const local = collector(async (url, options) => {
-    calls.push({ url, options });
-    assert.equal(options.credentials, 'omit');
-    return new Response(calls.length === 1 ? identity() : event());
-  });
-  const supplied = capture(), snapshot = structuredClone(supplied);
-  const requests = await local.prepare(supplied);
-  assert.deepEqual(supplied, snapshot, 'capture caller owns its source credentials');
-  assert.deepEqual(requests.map(row => row.url), ['https://iam.amazonaws.com/', 'https://cloudtrail.us-east-1.amazonaws.com/']);
-  assert.equal(JSON.parse(requests[1].body).LookupAttributes[0].AttributeKey, 'EventId');
-  assert.equal(calls.length, 2);
-  const query = JSON.parse(calls[1].options.body);
-  assert.deepEqual(query, { LookupAttributes: [{ AttributeKey: 'Username', AttributeValue: 'synthetic' }],
-    StartTime: now / 1000 - 90 * 86400, EndTime: now / 1000, MaxResults: 50 });
-  assert.doesNotMatch(JSON.stringify(requests), /AWS_PRIVATE_\w+_SENTINEL|AIDAEXAMPLESYNTHETIC01|111122223333|secretAccessKey|expiration/);
-  await failed(local.prepare(capture())); assert.equal(calls.length, 2);
-});
-
-test('wrong account, wrong actor, denied, read-only, oversized and dry-run events never select evidence', async () => {
-  for (const mutateEvent of [e => { e.userIdentity.principalId = 'OTHER'; }, e => { e.recipientAccountId = '999999999999'; },
-    e => { e.errorCode = 'PRIVATE_ERROR_SENTINEL'; }, e => { e.requestParameters.dryRun = true; }, e => { e.readOnly = true; },
-    e => { e.requestParameters.roleName = 'r'.repeat(65); }, e => { e.requestParameters.roleName = 'role name'; },
-    e => { e.eventName = 'GetRole'; }]) {
-    let calls = 0;
-    const local = collector(async () => new Response(++calls === 1 ? identity() : event({ mutateEvent })));
-    await failed(local.prepare(capture())); assert.equal(calls, 2);
-  }
+test('a different account than the capture claims never collects', async () => {
   let calls = 0;
   const local = collector(async () => { calls++; return new Response(identity()); });
   await failed(local.prepare({ ...capture(), accountId: '999999999999' })); assert.equal(calls, 1);
-});
-
-const rows = fixtures => fixtures.map(fixture => JSON.parse(body(fixture)).Events[0]);
-const eventIds = requests => requests.slice(1).map(request => JSON.parse(request.body).LookupAttributes[0].AttributeValue);
-const families = () => [eventFixture({ eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa0' }),
-  activityEventFixture('lambda', { eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1' }),
-  activityEventFixture('network', { eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2' }),
-  activityEventFixture('s3-versioning', { eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3' })];
-function pager(pages) {
-  const queries = [];
-  const local = collector(async (url, options) => {
-    if (url === 'https://iam.amazonaws.com/') return new Response(identity());
-    const query = JSON.parse(options.body); queries.push(query);
-    return new Response(JSON.stringify(pages[queries.length - 1] ?? { Events: [] }));
-  });
-  return { local, queries };
-}
-
-test('selects one event per skill area in catalog order, whatever the page order', async () => {
-  const { local, queries } = pager([{ Events: rows(families()).reverse() }]);
-  const requests = await local.prepare(capture());
-  assert.equal(queries.length, 1);
-  assert.deepEqual(eventIds(requests), ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa0', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
-    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3'].slice(0, AWS_MAX_EVENT_SESSIONS));
-  assert.doesNotMatch(JSON.stringify(requests), /AWS_PRIVATE_\w+_SENTINEL|111122223333|sg-0123456789abcdef0|192\.0\.2\.0/);
-});
-
-test('prefers an area\'s earlier catalog operation, and leaves areas past the cap out', async () => {
-  const later = ['iam-attach', 'lambda-code'].map((family, index) => activityEventFixture(family, { eventId: `cccccccc-cccc-4ccc-8ccc-ccccccccccc${index}` }));
-  const extra = ['changeset', 'ecs', 'ttl', 'alarm'].map((family, index) => activityEventFixture(family, { eventId: `dddddddd-dddd-4ddd-8ddd-ddddddddddd${index}` }));
-  const { local } = pager([{ Events: rows([...extra, ...later, ...families()].reverse()) }]);
-  const ids = eventIds(await local.prepare(capture()));
-  assert.deepEqual(ids, [...families(), ...extra].map(fixture => JSON.parse(body(fixture)).Events[0].EventId).slice(0, AWS_MAX_EVENT_SESSIONS));
-  const only = pager([{ Events: rows([...later].reverse()) }]);
-  assert.deepEqual(eventIds(await only.local.prepare(capture())), ['cccccccc-cccc-4ccc-8ccc-ccccccccccc0', 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1']);
-});
-
-test('a repeated skill area keeps only its newest event', async () => {
-  const newer = eventFixture({ eventId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb0' }), older = eventFixture({ eventId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1' });
-  const { local } = pager([{ Events: rows([newer, older]) }]);
-  assert.deepEqual(eventIds(await local.prepare(capture())), ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb0']);
-});
-
-test('pages past failed and differently attributed rows, and stops once every area is settled', async () => {
-  const denied = activityEventFixture('network', { mutateEvent: event => { event.errorCode = 'AccessDenied'; } });
-  const other = activityEventFixture('lambda', { mutateEvent: event => { event.userIdentity.principalId = 'OTHER'; } });
-  const [iam, lambda, network, storage] = families();
-  const first = pager([{ Events: rows([denied, other]), NextToken: 'second-page' }, { Events: rows([network]) }]);
-  assert.deepEqual(eventIds(await first.local.prepare(capture())), ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2']);
-  assert.deepEqual(first.queries.map(query => query.NextToken), [undefined, 'second-page']);
-  const settled = pager([{ Events: rows([storage, network, lambda, iam]), NextToken: 'unused-page' }]);
-  assert.equal((await settled.local.prepare(capture())).length, 1 + Math.min(AWS_MAX_EVENT_SESSIONS, families().length));
-  assert.equal(settled.queries.length, 1);
-});
-
-test('discovery reads a bounded number of pages', async () => {
-  const pages = Array.from({ length: 20 }, (_, index) => ({ Events: [], NextToken: `page-${index}` }));
-  const { local, queries } = pager(pages);
-  await failed(local.prepare(capture()));
-  assert.equal(queries.length, AWS_LIMITS.discoveryPages);
 });
 
 test('discovery signer builds only the bounded Username query', async () => {
@@ -195,14 +104,6 @@ test('discovery signer builds only the bounded Username query', async () => {
   for (const change of [{ userName: 'a/b' }, { userName: '' }, { userName: 'x'.repeat(65) }, { eventName: 'DeleteUser' },
     { start: query.end - 91 * 86400 }]) {
     await assert.rejects(signAwsPrivateRequest({ ...query, ...change }, credentials(), { nonceMac: 'n'.repeat(43), now }));
-  }
-});
-
-test('malformed and looping pagination reject without a completed selection', async () => {
-  for (const page of ['{"Events":{}}', '{"Events":[],"NextToken":"loop"}', '{"Events":[{}]}', 'not json']) {
-    let calls = 0;
-    const local = collector(async () => new Response(++calls === 1 ? identity() : page));
-    await failed(local.prepare(capture())); assert.ok(calls <= 3);
   }
 });
 
@@ -216,7 +117,7 @@ test('cancellation and expiry settle a pending response without follow-up reques
   for (const expired of [false, true]) {
     let clock = now, resume, started;
     const ready = new Promise(resolve => { started = resolve; });
-    const local = createAwsLocalSession({ attempt: attempt(), pages: false, now: () => clock, fetchAws: async () => {
+    const local = createAwsLocalSession({ attempt: attempt(), now: () => clock, fetchAws: async () => {
       started(); return new Promise(resolve => { resume = resolve; });
     } });
     const pending = local.prepare(capture()); await ready;
@@ -228,7 +129,7 @@ test('cancellation and expiry settle a pending response without follow-up reques
 
 test('Fast collects only IAM identity and never queries CloudTrail', async () => {
   const calls = [];
-  const local = createAwsLocalSession({ attempt: attempt(), pages: false, now: () => now, identityOnly: true,
+  const local = createAwsLocalSession({ attempt: attempt(), now: () => now, identityOnly: true,
     fetchAws: async (url, options) => { calls.push(url); assert.equal(url, 'https://iam.amazonaws.com/');
       assert.equal(options.body, 'Action=GetUser&Version=2010-05-08'); return new Response(identity()); } });
   const requests = await local.prepare(capture());
@@ -240,7 +141,7 @@ test('Fast collects only IAM identity and never queries CloudTrail', async () =>
 
 test('collection failures carry a fixed stage code and no value', async () => {
   const stageOf = async (fetchAws, supplied = capture(), options = {}) => {
-    const error = await createAwsLocalSession({ attempt: attempt(), pages: false, fetchAws, now: () => now, ...options }).prepare(supplied).then(() => null, e => e);
+    const error = await createAwsLocalSession({ attempt: attempt(), fetchAws, now: () => now, ...options }).prepare(supplied).then(() => null, e => e);
     assert.equal(error?.message, 'AWS_PRIVATE_COLLECTION_FAILED');
     return error.stage;
   };
@@ -250,8 +151,6 @@ test('collection failures carry a fixed stage code and no value', async () => {
   assert.equal(await stageOf(async () => new Response('<x/>')), 'IDENTITY_PARSE');
   let calls = 0;
   assert.equal(await stageOf(async () => new Response(++calls === 1 ? identity() : JSON.stringify({ Events: [] }))), 'NO_EVENTS');
-  calls = 0;
-  assert.equal(await stageOf(async () => new Response(++calls === 1 ? identity() : '{"Events":[],"Other":1}')), 'DISCOVERY_PAGE');
 });
 
 test('page runs: a later discovery read that fails in transit keeps the pages read so far; a failed first read still fails', async () => {

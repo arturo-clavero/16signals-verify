@@ -1,13 +1,11 @@
-import { buildAwsRequest, awsCloudTrailRegion, AWS_EVENT_ID, AWS_LIMITS, AWS_REGION } from './request.mjs';
+import { buildAwsRequest, awsCloudTrailRegion, AWS_LIMITS, AWS_REGION } from './request.mjs';
 import { parseAwsIdentity } from './console-session.mjs';
 import { validateAwsAttempt } from './authenticated-transcript.mjs';
-import { AWS_OPERATIONS, AWS_SKILL_AREAS, AWS_RESOURCE_NAME, awsOperation } from './operation-catalog.mjs';
-import { AWS_MAX_EVENT_SESSIONS, AWS_MAX_PAGE_SESSIONS, AWS_PAGE_STEPS } from './sessions.mjs';
+import { AWS_MAX_PAGE_SESSIONS, AWS_PAGE_STEPS } from './sessions.mjs';
 import { discoverAwsRegions } from './activity-discovery.mjs';
 import { rankAwsActivity, packAwsSessions } from './activity-selection.mjs';
 import { AWS_PAGE_ROW_CAP } from './page-plan.mjs';
 import { parseJsonStructure } from '../gcp/json-structure.mjs';
-import { planAwsSession } from './client-plan.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 // `stage` is a fixed diagnostic code (never a value) that the extension logs; the message stays the same for callers.
@@ -123,10 +121,9 @@ export async function readAwsPrivateResponse(url, options, { fetchAws = fetch, s
 
 /**
  * Local selection is provisional: only the native transcripts and their ZK bundle establish a claim.
- * `pages` (default): discover, rank and pack the user's writes into page sessions (P0..); otherwise one session per
- * selected event (E0..), the earlier flow.
+ * Discovers, ranks and packs the user's writes into page sessions (P0..).
  */
-export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.now, identityOnly = false, pages = true }) {
+export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.now, identityOnly = false }) {
   validateAwsAttempt(attempt, now());
   attempt = { ...attempt };
   const controller = new AbortController();
@@ -189,89 +186,31 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
         phase = 'IDENTITY_ACCOUNT';
         if (accountId !== undefined && accountId !== identity.accountId) fail();
         if (identityOnly) { const request = await sign({ kind: 'identity' }); check(); return [request]; }
-        if (pages) {
-          // Local and unproven: never sent to 16signals. Only the page sessions' transcripts and proofs make a claim.
-          phase = 'DISCOVERY';
-          const end = Math.floor(attempt.issuedAt / 1000), userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1);
-          let discoveryReads = 0;
-          const discoveryRead = async options => {
-            try { return await read(options, AWS_LIMITS.discoveryBytes); } catch (error) {
-              // After the first page, a read that fails in transit (timeout, dropped connection, AWS 5xx or throttling)
-              // ends discovery with the pages read so far. The first read, refused access and a closed session still fail.
-              if (discoveryReads && !closed && DISCOVERY_TRANSIENT.test(error?.stage ?? '')) return null;
-              throw error;
-            } finally { discoveryReads++; }
-          };
-          const discovery = await discoverAwsRegions({ read: discoveryRead, identity, end,
-            maxPages: AWS_PAGE_RUN.pages, timeMs: AWS_PAGE_RUN.ms, now });
-          phase = 'SELECTION';
-          // The job's skill groups (server attempt state) weigh the choice and the session order; they never limit it.
-          const jobGroups = Array.isArray(attempt.jobGroups) ? attempt.jobGroups : [];
-          const ranking = rankAwsActivity(discovery.candidates, { budget: AWS_PAGE_RUN.budget, jobGroups, discovery });
-          const { sessions } = packAwsSessions(ranking.picks, discovery, { rowCap: AWS_PAGE_RUN.rowCap, jobGroups, maxSessions: AWS_PAGE_RUN.sessions });
-          phase = 'NO_EVENTS';
-          if (!sessions.length) fail();
-          phase = 'SIGN';
-          const requests = [await sign({ kind: 'identity' })];
-          for (const session of sessions) requests.push(await sign({ kind: 'page', region: session.region, userName, start: session.start, end: session.end }));
-          pageRows = Object.fromEntries(sessions.map((session, index) => [AWS_PAGE_STEPS[index], [...session.eventIds]]));
-          check(); return requests;
-        }
-        // One local, unproven Username query: never sent to 16signals. Each selected row is proven later in its own
-        // session, fetched again by EventId; only rows whose single-event response passes the session planner count.
-        const end = Math.floor(attempt.issuedAt / 1000), start = end - 90 * 86400;
-        const userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1), best = new Map(), tokens = new Set();
-        // Selection: one event per skill area, preferring the area's earlier catalog operation, then the newest event
-        // (LookupEvents pages are newest first). Areas follow catalog order up to the session cap.
-        const areas = AWS_SKILL_AREAS.map(area => area.id).filter(id => AWS_OPERATIONS.some(profile => profile.skillArea === id));
-        const first = id => AWS_OPERATIONS.findIndex(profile => profile.skillArea === id);
-        const settled = () => areas.slice(0, AWS_MAX_EVENT_SESSIONS).every(id => best.get(id)?.rank === first(id));
-        let nextToken, pagesRead = 0;
-        do {
-          phase = 'DISCOVERY_FETCH';
-          const text = await read({ kind: 'discovery', userName, start, end, ...(nextToken ? { nextToken } : {}) }, AWS_LIMITS.discoveryBytes);
-          phase = 'DISCOVERY_PAGE';
-          let page;
-          try { page = JSON.parse(text); } catch { fail(); }
-          pagesRead++;
-          if (!exact(page, ['Events', ...(page?.NextToken === undefined ? [] : ['NextToken'])]) ||
-              !Array.isArray(page.Events) || page.Events.length > AWS_LIMITS.pageSize) fail();
-          for (const row of page.Events) {
-            if (!row || typeof row.CloudTrailEvent !== 'string') fail();
-            let event;
-            try { event = JSON.parse(row.CloudTrailEvent); } catch { continue; }
-            const profile = awsOperation(event?.eventSource, event?.eventName), rank = AWS_OPERATIONS.indexOf(profile);
-            if (!profile || (best.get(profile.skillArea)?.rank ?? Infinity) <= rank) continue;
-            const actor = event.userIdentity, resource = event.requestParameters?.[profile.resource];
-            if (event.readOnly !== false || event.errorCode !== undefined || event.errorMessage !== undefined ||
-                actor?.type !== 'IAMUser' || actor.principalId !== identity.principalId || actor.arn !== identity.arn ||
-                actor.accountId !== identity.accountId || event.recipientAccountId !== identity.accountId ||
-                typeof resource !== 'string' || !AWS_RESOURCE_NAME.pattern.test(resource) ||
-                resource.length + 2 < AWS_RESOURCE_NAME.minBytes || resource.length + 2 > AWS_RESOURCE_NAME.maxBytes) continue;
-            const time = Date.parse(event.eventTime);
-            if (!AWS_EVENT_ID.test(row.EventId ?? '') || row.EventId !== event.eventID ||
-                !Number.isFinite(time) || time < attempt.issuedAt - 90 * 86400000 || time > attempt.issuedAt ||
-                typeof row.EventTime !== 'number' || Math.abs(row.EventTime * 1000 - time) > 1) continue;
-            const request = await sign({ kind: 'event', eventId: row.EventId });
-            const body = JSON.stringify({ Events: [row] });
-            const sent = encoder.encode(`POST / HTTP/1.1\r\n${Object.entries(request.headers).map(([key, value]) => `${key}: ${value}\r\n`).join('')}content-length: ${encoder.encode(request.body).length}\r\n\r\n${request.body}`);
-            const recv = encoder.encode(`HTTP/1.1 200 OK\r\ncontent-type: application/x-amz-json-1.1\r\ncontent-length: ${encoder.encode(body).length}\r\n\r\n${body}`);
-            try {
-              planAwsSession({ step: 'E0', serverName: 'cloudtrail.us-east-1.amazonaws.com', nonceMac: attempt.nonceMac }, { sent, recv });
-              best.set(profile.skillArea, { rank, eventId: row.EventId });
-            } catch { /* Unsupported or failed events remain unavailable. */ }
-            finally { sent.fill(0); recv.fill(0); }
-          }
-          nextToken = page.NextToken;
-          if (nextToken !== undefined && (typeof nextToken !== 'string' || !nextToken || nextToken.length > 8192 || tokens.has(nextToken))) fail();
-          if (nextToken) tokens.add(nextToken);
-        } while (nextToken && pagesRead < AWS_LIMITS.discoveryPages && !settled());
-        const selected = areas.filter(id => best.has(id)).slice(0, AWS_MAX_EVENT_SESSIONS).map(id => best.get(id).eventId);
+        // Local and unproven: never sent to 16signals. Only the page sessions' transcripts and proofs make a claim.
+        phase = 'DISCOVERY';
+        const end = Math.floor(attempt.issuedAt / 1000), userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1);
+        let discoveryReads = 0;
+        const discoveryRead = async options => {
+          try { return await read(options, AWS_LIMITS.discoveryBytes); } catch (error) {
+            // After the first page, a read that fails in transit (timeout, dropped connection, AWS 5xx or throttling)
+            // ends discovery with the pages read so far. The first read, refused access and a closed session still fail.
+            if (discoveryReads && !closed && DISCOVERY_TRANSIENT.test(error?.stage ?? '')) return null;
+            throw error;
+          } finally { discoveryReads++; }
+        };
+        const discovery = await discoverAwsRegions({ read: discoveryRead, identity, end,
+          maxPages: AWS_PAGE_RUN.pages, timeMs: AWS_PAGE_RUN.ms, now });
+        phase = 'SELECTION';
+        // The job's skill groups (server attempt state) weigh the choice and the session order; they never limit it.
+        const jobGroups = Array.isArray(attempt.jobGroups) ? attempt.jobGroups : [];
+        const ranking = rankAwsActivity(discovery.candidates, { budget: AWS_PAGE_RUN.budget, jobGroups, discovery });
+        const { sessions } = packAwsSessions(ranking.picks, discovery, { rowCap: AWS_PAGE_RUN.rowCap, jobGroups, maxSessions: AWS_PAGE_RUN.sessions });
         phase = 'NO_EVENTS';
-        if (!selected.length) fail();
+        if (!sessions.length) fail();
         phase = 'SIGN';
         const requests = [await sign({ kind: 'identity' })];
-        for (const eventId of selected) requests.push(await sign({ kind: 'event', eventId }));
+        for (const session of sessions) requests.push(await sign({ kind: 'page', region: session.region, userName, start: session.start, end: session.end }));
+        pageRows = Object.fromEntries(sessions.map((session, index) => [AWS_PAGE_STEPS[index], [...session.eventIds]]));
         check(); return requests;
       } catch (error) {
         if (error instanceof Error && error.message === 'AWS_ACTIVITY_ACCESS_REQUIRED') throw new Error('AWS_ACTIVITY_ACCESS_REQUIRED');

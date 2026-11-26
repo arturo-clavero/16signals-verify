@@ -33,9 +33,9 @@ result was not established, which is different from "no activity".
    events against the catalog by service and event name. `activity-selection.mjs` then picks what to prove. If
    CloudTrail denies the lookup, the run stops with the fixed error `AWS_ACTIVITY_ACCESS_REQUIRED` and nothing from the
    response body is kept.
-3. **Proving sessions.** A run uses one of two kinds, never both:
+3. **Proving sessions.** The client collects page sessions. Earlier event runs still verify:
    - **Event sessions** (`E0`, `E1`, ...): one session per selected skill area, each fetching a single event by
-     `EventId`. At most 4 event sessions per run (`sessions.mjs`).
+     `EventId`. At most 4 per run (`sessions.mjs`). The client no longer collects these.
    - **Page sessions** (`P0`, `P1`, ...): each fetches one `LookupEvents` page (50 rows) for a time window and proves
      several of its rows in batches. At most 5 page sessions per run. Sessions can target any commercial Region in
      `AWS_REGIONS` (`request.mjs`); events of global services (IAM, STS, CloudFront, Route 53, Organizations) are only

@@ -13,7 +13,7 @@ test('one shared step list: identity, then E0 up to the session cap, never past 
   assert.ok(Object.isFrozen(AWS_SESSION_STEPS) && Object.isFrozen(AWS_EVENT_STEPS));
 });
 
-test('runs at a smaller cap, the build cap and the E7 ceiling pass discovery, client and verifier end to end', () => {
+test('event runs at a smaller cap, the build cap and the E7 ceiling pass client and verifier end to end', () => {
   for (const cap of [2, AWS_MAX_EVENT_SESSIONS, AWS_EVENT_STEP_LIMIT]) {
     const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--no-warnings',
       fileURLToPath(new URL('./sessions-cap-check.mjs', import.meta.url)), String(cap)], { encoding: 'utf8', timeout: 120000 });
