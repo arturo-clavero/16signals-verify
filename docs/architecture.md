@@ -266,7 +266,7 @@ variables, which override the file. All are optional for a development build.
 | Variable | Meaning |
 | --- | --- |
 | `FORK_PRODUCT_ORIGINS` | Comma-separated origins allowed to use the page API. Dev default: `http://localhost:5173`, `http://127.0.0.1:5173` and the same on port 5175. Required, https and non-loopback, with `FORK_KEY_FILE` |
-| `FORK_PLUGIN_DIR` | Directory of built plugin bundles `<id>.js`, packaged as the built-in plugins. Without it the extension can run nothing; required with `FORK_KEY_FILE` |
+| `FORK_PLUGIN_DIR` | Directory of built plugin bundles `<id>.js`, packaged as the built-in plugins (the only plugin code the extension runs). Default: `aws-private-work` and `cloudflare-private-work`, built from `private-proof/*/plugin.ts` into `fork/out/plugins` by `fork/build-plugins.mjs` |
 | `FORK_KEY_FILE` | Base64 DER public key written as the manifest `key` (stable extension id). Marks a production build |
 | `FORK_NAME` | Manifest name (default `TLSN Extension (dev)`, or `TLSN Extension` with a key) |
 | `FORK_DESCRIPTION` | Manifest description, at most 132 characters |
@@ -284,7 +284,7 @@ Cloudflare OAuth sign-in, whose client id comes from `FORK_CF_OAUTH_CLIENT_ID`).
 ### Build for your site
 
 1. `cp fork/config.example.env fork/config.env` and set at least `FORK_PRODUCT_ORIGINS` (your page's origin),
-   `FORK_KEY_FILE`, `FORK_PLUGIN_DIR` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID`. Leave it empty for a local
+   `FORK_KEY_FILE` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID` (`FORK_PLUGIN_DIR` only for your own plugin set). Leave it empty for a local
    development build (pages on `http://localhost:5173` or `:5175`).
 2. `npm ci && npm run build:fork`. A production build stops with a message when a required value is missing.
    The build needs Linux x64 and three pinned tools, each checked before use: the Noir compiler

@@ -104,7 +104,7 @@ $('extension').className = plugins.length ? 'ok' : 'bad';
 $('extension').textContent = !window.tlsn
   ? `Not found. Load the extension built with FORK_PRODUCT_ORIGINS=${location.origin}, then reload this page.`
   : plugins.length ? `Found, with built-in plugins: ${plugins.map(p => p.id).join(', ')}.`
-  : 'Found, but it has no built-in plugins: build it with FORK_PLUGIN_DIR.';
+  : 'Found, but it has no built-in plugins: rebuild it (npm run build:fork) without FORK_PLUGIN_DIR, or with a directory of bundles.';
 refresh();
 
 /** Posts TLSN_RUN_BUILTIN and resolves with the plugin's result, logging the extension's replies. */

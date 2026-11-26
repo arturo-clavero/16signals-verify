@@ -32,8 +32,10 @@ Each folder has its own tests (`npm ci && npm test`, serial, no cloud account ne
    proof's hashed inputs against the recorded commitments, and verify against the pinned keys.
 3. **Descriptor.** `descriptor.mjs` default-exports `{ id, kind, pins, claim, claimFromResult, describe }`. Only `id`
    is required. See [packages/proof-check/README.md](../packages/proof-check/README.md).
-4. **Plugin and extension.** Add a built-in plugin for the provider and its plugin id to the extension's allowed
-   list, and the provider's hosts to the build's host access ([docs/architecture.md](../docs/architecture.md#build)).
+4. **Plugin and extension.** Write the provider's built-in plugin (`plugin.ts`, see [`aws/plugin.ts`](aws/plugin.ts)
+   and [`cloudflare/plugin.ts`](cloudflare/plugin.ts)), add it to `PLUGINS` in
+   [`fork/build-plugins.mjs`](../fork/build-plugins.mjs), its plugin id to the extension's allowed list, and the
+   provider's hosts to the build's host access ([docs/architecture.md](../docs/architecture.md#build)).
 5. **Register it for checking.** Add the descriptor path to `providers` in
    [`verify/verify.config.json`](../verify/verify.config.json) or your own config.
 

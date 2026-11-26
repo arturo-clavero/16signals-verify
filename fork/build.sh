@@ -14,7 +14,8 @@
 #   FORK_PRODUCT_ORIGINS  comma-separated origins of the embedding pages allowed to use the page API
 #                         (dev default: http://localhost:5173, http://127.0.0.1:5173 and the same on port 5175)
 #   FORK_PLUGIN_DIR       directory of built plugin bundles <id>.js, packaged as the extension's built-in plugins
-#                         (the only plugin code it runs); without it the extension has none
+#                         (the only plugin code it runs); default: aws-private-work and cloudflare-private-work built
+#                         from private-proof/*/plugin.ts by build-plugins.mjs into fork/out/plugins
 #   FORK_NAVIGATE_URLS    comma-separated exact https URLs (no query or fragment) a trusted plugin may send its own
 #                         window to (e.g. an account switcher); default none
 #   FORK_EXTRA_HOSTS      comma-separated extra host match patterns (https://host/path*) for content scripts and
@@ -102,25 +103,30 @@ if [ -n "$EXTRA_HOSTS" ]; then
     [[ "$h" =~ ^https://[a-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._~/%*-]*$ ]] || { echo "FORK_EXTRA_HOSTS entry must be a match pattern https://host/path: '$h'" >&2; exit 1; }
   done
 fi
-PLUGIN_DIR=""
+PLUGIN_DIR=""; BUILD_PLUGINS=0
 if [ -n "${FORK_PLUGIN_DIR:-}" ]; then
   PLUGIN_DIR="$(realpath "$FORK_PLUGIN_DIR")"
   ls "$PLUGIN_DIR"/*.js >/dev/null 2>&1 || { echo "warning: no plugin bundles (*.js) in $PLUGIN_DIR" >&2; PLUGIN_DIR=""; }
-fi
-if [ -z "$PLUGIN_DIR" ]; then
-  [ "$PRODUCTION" = 0 ] || { echo "a production build needs its built-in plugins: set FORK_PLUGIN_DIR to the built bundles" >&2; exit 1; }
-  echo "warning: no FORK_PLUGIN_DIR; the extension will have no built-in plugin (nothing can run)" >&2
+  if [ -z "$PLUGIN_DIR" ]; then
+    [ "$PRODUCTION" = 0 ] || { echo "a production build needs its built-in plugins: FORK_PLUGIN_DIR has no bundles" >&2; exit 1; }
+    echo "warning: the extension will have no built-in plugin (nothing can run)" >&2
+  fi
+else
+  # No FORK_PLUGIN_DIR: the AWS and Cloudflare plugins, built from source below (after npm ci).
+  PLUGIN_DIR="$OUT/plugins"; BUILD_PLUGINS=1
+  echo "built-in plugins: aws-private-work and cloudflare-private-work from source (no FORK_PLUGIN_DIR)"
 fi
 CF_CLIENT_ID="${FORK_CF_OAUTH_CLIENT_ID:-}"
 if [ -n "$CF_CLIENT_ID" ]; then
   [[ "$CF_CLIENT_ID" =~ ^[A-Za-z0-9_-]{16,128}$ ]] || { echo "FORK_CF_OAUTH_CLIENT_ID is not an OAuth client id: '$CF_CLIENT_ID'" >&2; exit 1; }
-elif [ "$PRODUCTION" = 1 ] && [ -f "$PLUGIN_DIR/cloudflare-private-work.js" ]; then
+elif [ "$PRODUCTION" = 1 ] && { [ "$BUILD_PLUGINS" = 1 ] || [ -f "$PLUGIN_DIR/cloudflare-private-work.js" ]; }; then
   echo "a production build with cloudflare-private-work needs FORK_CF_OAUTH_CLIENT_ID (your public Cloudflare OAuth client id)" >&2; exit 1
 fi
 
 mkdir -p "$WORK"
 cd "$ROOT"
 [ -d node_modules ] || npm ci --no-audit --no-fund
+if [ "$BUILD_PLUGINS" = 1 ]; then node "$HERE/build-plugins.mjs" "$PLUGIN_DIR"; fi
 # The AWS package resolves the proof runtime through the GCP package, so GCP is installed first.
 for dir in "$GCP" "$AWS"; do
   [ -d "$dir/node_modules" ] || (cd "$dir" && npm ci --ignore-scripts --no-audit --no-fund)

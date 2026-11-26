@@ -140,8 +140,8 @@ A runnable version of these steps, from sign-in to a checked proof package: [exa
    format, the `did:web` setup and the limits (`TLSN_MAX_SESSIONS`, `TLSN_MEMORY_BUDGET_MB`, ...) are in
    [servers/verifier/README.md](servers/verifier/README.md). The built-in proxy is at `ws://<host>:7047/proxy`.
 
-2. **Build the extension for your site.** Set `FORK_PRODUCT_ORIGINS` (your page's origin), `FORK_KEY_FILE`,
-   `FORK_PLUGIN_DIR` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID` in `fork/config.env`, then
+2. **Build the extension for your site.** Set `FORK_PRODUCT_ORIGINS` (your page's origin), `FORK_KEY_FILE` and, for
+   Cloudflare, `FORK_CF_OAUTH_CLIENT_ID` in `fork/config.env`, then
    `npm ci && npm run build:fork`. Load `fork/out/extension` unpacked. With an empty config you get a development
    build for pages on `http://localhost:5173` or `:5175`. See [Build for your site](docs/architecture.md#build-for-your-site).
 
