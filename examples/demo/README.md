@@ -1,7 +1,9 @@
 # End-to-end demo
 
 A minimal site that runs a real private proof (Google Cloud, AWS or Cloudflare) from your own browser session and
-turns it into a [proof package](../../packages/proof-check/README.md#proof-packages) anyone can re-check.
+turns it into a [proof package](../../packages/proof-check/README.md#proof-packages) anyone can re-check. The demo also
+plays the issuer: it signs an attestation of each package's claim with its own Ed25519 key and trusts that key on its
+verify page.
 
 ```mermaid
 sequenceDiagram
@@ -16,13 +18,13 @@ sequenceDiagram
   V->>S: POST /webhook per session (signed receipt + leaves)
   E->>P: proof bundle
   P->>S: POST /bundle
-  S->>S: verify-bundle.mjs, buildPackage, checkPackage
-  S->>P: package + check lines
+  S->>S: verify-bundle.mjs, buildPackage, sign the claim, checkPackage
+  S->>P: package + attestation + check lines
 ```
 
 | File | Purpose |
 | --- | --- |
-| `server.mjs` | Node HTTP server, no dependencies: the page, `/start`, `/webhook`, `/bundle`, `/did.json`, and the repository's `verify/` page |
+| `server.mjs` | Node HTTP server, no dependencies: the page, `/start`, `/webhook`, `/bundle`, `/did.json`, and the repository's `verify/` page (its `keys.json` adds the verifier's DID and the demo issuer's key) |
 | `providers.mjs` | Per provider: the built-in plugin and its params, the attempt fields its bundle verifier checks, its pinned proof runtime |
 | `index.html` | The page: finds the extension, starts the run, shows progress, offers the package |
 | `config.example.yaml` | The verifier's webhook config, pointing at the demo server |
@@ -95,7 +97,7 @@ All commands run from the repository root. Ports: the demo on 18474, the verifie
 
    `DEMO_HOST=0.0.0.0` lets the verifier container reach `/webhook`. Optional: `DEMO_PORT` (default 18474),
    `VERIFIER_URL` (default `http://localhost:17047`), `DID_FILE` (the verifier's DID document from a file instead of
-   `VERIFIER_URL`). The server also re-runs the zero-knowledge proofs with `@aztec/bb.js`, an optional dependency
+   `VERIFIER_URL`), `ISSUER_KEY_FILE` (the issuer's PKCS#8 Ed25519 PEM; default: a new key per start). The server also re-runs the zero-knowledge proofs with `@aztec/bb.js`, an optional dependency
    that the root `npm ci` of step 3 installs. Do not run `npm ci` inside `packages/proof-check`: it is a workspace
    of this repository, and that replaces the root `node_modules` with its few dependencies.
 
@@ -105,14 +107,18 @@ All commands run from the repository root. Ports: the demo on 18474, the verifie
    one line per verifier webhook ("signed receipt"), then one line per zero-knowledge proof made in the browser (the
    "at most" figure is a cap, not the count to expect). A run takes a few minutes (AWS: about 5).
 
-7. **Check.** When the run ends, section 4 shows the package's check lines (`receipt-signature`, `server-name` and
-   `signed-root` must be `ok`). Click **Download package**, then either open the verify page (the link; drop the file
-   there) or run the command the page prints:
+7. **Check.** When the run ends, section 4 shows the package's check lines (all `ok`, `on-chain` not applicable).
+   `claim-from-data` reads "from the proofs' public inputs" for Google Cloud and "signed by demo issuer" for AWS and
+   Cloudflare. Click **Download package** (one file: `{ package, attestation }`), then either open the verify page (the
+   link; drop the file there) or run the command the page prints:
 
    ```sh
-   curl -s http://localhost:18474/did.json > did.json
-   node packages/proof-check/cli.mjs --proof aws-package.json --did did.json --claim '<the claim shown>'
+   curl -s http://localhost:18474/verify/keys.json > keys.json
+   node packages/proof-check/cli.mjs --proof aws-package.json --keys keys.json --claim '<the claim shown>'
    ```
+
+   The issuer key is new at every start unless `ISSUER_KEY_FILE` names a PKCS#8 Ed25519 PEM, so fetch `keys.json`
+   from the server that made the package.
 
    Without `@aztec/bb.js` installed, `zk-proofs` is not run (`--`) and the result is `partial`; the verify page always
    re-runs the proofs in the browser.

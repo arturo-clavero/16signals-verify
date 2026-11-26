@@ -176,12 +176,13 @@ $('start').addEventListener('click', async () => {
 });
 
 function show(provider, result) {
-  pkg = { provider, json: `${JSON.stringify(result.package, null, 2)}\n` };
+  // One file: the package and the demo issuer's signed attestation of its claim.
+  pkg = { provider, json: `${JSON.stringify({ package: result.package, attestation: result.attestation }, null, 2)}\n` };
   $('status').className = `status ${result.status === 'verified' ? 'ok' : result.status === 'failed' ? 'bad' : 'warn'}`;
   $('status').textContent = `${result.status}: ${result.claim ?? 'no claim'}`;
   $('lines').textContent = result.lines.join('\n');
   const claim = result.claim ? ` --claim '${result.claim}'` : '';
-  $('command').textContent = `curl -s ${location.origin}/did.json > did.json\nnode packages/proof-check/cli.mjs --proof ${provider}-package.json --did did.json${claim}`;
+  $('command').textContent = `curl -s ${location.origin}/verify/keys.json > keys.json\nnode packages/proof-check/cli.mjs --proof ${provider}-package.json --keys keys.json${claim}`;
   $('result').hidden = false;
 }
 
