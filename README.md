@@ -7,6 +7,7 @@
 >   (`private-proof/`: Google Cloud, AWS and Cloudflare)
 > - built-in plugins, an origin-gated page API and proving-flow changes (`packages/extension`, `packages/plugin-sdk`)
 > - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
+> - anchoring of signed attestations on BNB Smart Chain through the BNB Attestation Service (`crops/bnb-anchor`)
 >
 > Licensed like upstream: MIT or Apache-2.0, at your option. The upstream README follows.
 
@@ -16,12 +17,13 @@
 - [CROPS](docs/crops.md): censorship resistance, open source, privacy and security, with trade-offs
 - [CROPS compliance](docs/crops-compliance.md): each guarantee with the code that enforces it, its test and its limits
 - [Verification](docs/verification.md): the verify page, verifier keys, hosting
+- [BNB Chain anchoring](docs/bnb.md): publishing attestations to BAS and looking them up on the verify page
 
 ## CROPS
 
 - **Censorship resistance.** The fork's operator runs a TLSNotary verifier and holds an attestation signing key. If
-  either goes away, signed attestations and public proof bundles are plain files the user keeps and can share, and
-  [`verify/`](verify/) is a static page anyone can host. Anyone can run their own verifier from this repository.
+  either goes away, signed attestations and public proof bundles are plain files the user keeps and can share; a signed attestation can also be
+  anchored on BNB Smart Chain, where anyone can read it by its UID; and [`verify/`](verify/) is a static page anyone can host. Anyone can run their own verifier from this repository.
 - **Open source.** MIT or Apache-2.0 ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)). Everything
   builds from this repository: the extension with `npm run build:fork`; [`crops/`](crops/) and `verify/` are plain ES
   modules with no build step.
@@ -29,8 +31,9 @@
   user's IP address, the hosts contacted, timing and traffic sizes, and receives private values only as blinded hash
   commitments. Anyone who receives a signed attestation sees the coarse claim, the commitment and the signature and, if the
   user also shares the public bundle, its proofs and public inputs, which include blinded hashes, the lengths of
-  hidden values and the time cutoff, never transcripts or identifiers. The verify page is static and makes no
-  network lookup by commitment.
+  hidden values and the time cutoff, never transcripts or identifiers. The verify page is static; a lookup by BNB Chain
+  attestation UID reads that one record from a public RPC (which sees the viewer's IP address and the UID) and loads
+  viem from esm.sh.
 - **Security.** Attestations are Ed25519 signatures over a canonical commitment; signing keys live only in the
   verifier's environment and public keys are listed in [`verify/keys.json`](verify/keys.json). Trust assumption: the
   transcript is only as trustworthy as the TLSNotary verifier; anyone can run their own. The verify page checks the

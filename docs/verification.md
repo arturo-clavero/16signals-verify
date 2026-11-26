@@ -9,6 +9,12 @@ Open `verify/` on any static host of this repository and drop a JSON file on the
 commitment over the network. A dropped attestation's commitment is recomputed from its fields rather than taken from
 its label.
 
+It can also look up an attestation anchored on BNB Smart Chain: enter its BAS attestation UID, or open
+`verify/?uid=0x…` (add `&network=bsc` for mainnet; testnet is the default). The page reads that one record with
+`getAttestation` from a public RPC, checks it uses this repository's schema and is not revoked, and verifies the signed
+attestation it carries exactly like a dropped one. The public bundle is not on chain; drop the bundle file after the
+lookup to add its checks, otherwise the result is signature-only. See [BNB Chain anchoring](bnb.md).
+
 The page:
 
 1. loads [`verify/keys.json`](../verify/keys.json), the verifier keys it accepts;
