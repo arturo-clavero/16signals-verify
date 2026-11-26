@@ -16,10 +16,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const ESBUILD_VERSION = '0.27.7';
 
-/** id -> { source, method } of every plugin built here (GCP's plugin is not in this repository). */
+/** id -> { source, method } of every plugin built here. */
 export const PLUGINS = Object.freeze({
   'aws-private-work': { source: 'private-proof/aws/plugin.ts', method: 'AWS_ACCOUNT' },
   'cloudflare-private-work': { source: 'private-proof/cloudflare/plugin.ts', method: 'CLOUDFLARE_ACCOUNT' },
+  'gcp-work': { source: 'private-proof/gcp/plugin.ts', method: 'GCP_WORK' },
 });
 
 export const PLUGIN_SIZE_LIMIT = 200 * 1024;

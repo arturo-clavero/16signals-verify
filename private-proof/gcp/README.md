@@ -9,7 +9,8 @@ and trust model are in [docs/architecture.md](../../docs/architecture.md).
 
 ## Flow
 
-1. The page starts the `gcp-work` built-in plugin through the extension.
+1. The page starts the `gcp-work` built-in plugin ([`plugin.ts`](plugin.ts), bundled by
+   [`fork/build-plugins.mjs`](../../fork/build-plugins.mjs)) through the extension.
 2. One TLS session reads the user's identity; five further sessions each send one batch of log queries for up to six
    skill groups. Each session runs through the TLSNotary verifier in Proxy mode.
 3. Fixed text is revealed. Private values (email, project ids, log entries) are hashed with a random blinder and only
@@ -27,6 +28,7 @@ A group that is not in the claim was not established, which is not evidence of n
 | File or folder | Purpose |
 | --- | --- |
 | `descriptor.mjs` | Provider descriptor for proof-check: pins, claim, headline |
+| `plugin.ts`, `request.mjs` | The `gcp-work` built-in plugin and the requests it notarizes (bodies rendered from the catalog) |
 | `policy.mjs`, `generated/catalog.json` | The batch layout: which groups go in which query, the window policy |
 | `circuits/` | Noir circuits: `identity-scope`, `query-scope`, `timestamps`, `atom`, `atoms-small`, `header`, `headers-small`, `lib` |
 | `generated/verification-keys.json` | Pinned verification-key hashes (`pins`) |

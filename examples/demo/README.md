@@ -35,10 +35,8 @@ State is in memory and nothing is authenticated: run it on your own machine only
 - Linux x64, Node 22+, Docker and Chrome.
 - The extension build toolchain: `nargo` 1.0.0-beta.19, Rust `nightly-2026-05-21` with `wasm32-unknown-unknown`, and
   clang 15.0.7 (see [Build for your site](../../docs/architecture.md#build-for-your-site)).
-- Nothing else for AWS and Cloudflare: the extension build bundles their plugins from source
-  (`private-proof/{aws,cloudflare}/plugin.ts`). The Google Cloud plugin (`gcp-work`) is not in this repository; to
-  run Google Cloud, build your own `gcp-work.js` and pass a directory with all the bundles you want as
-  `FORK_PLUGIN_DIR` (it replaces the default set).
+- No plugin bundles: the extension build bundles the Google Cloud, AWS and Cloudflare plugins from source
+  (`private-proof/{gcp,aws,cloudflare}/plugin.ts`).
 - For Cloudflare: a Cloudflare OAuth client (Authorization Code + PKCE, no secret) whose redirect URI is
   `https://<extension id>.chromiumapp.org/`.
 - An account to prove: a Google Cloud project you can open in Logs Explorer, an AWS IAM user that can sign in to the
@@ -71,15 +69,15 @@ All commands run from the repository root. Ports: the demo on 18474, the verifie
    Check it from another terminal: `curl -s http://localhost:17047/.well-known/did.json` prints a DID document with
    your public key.
 
-3. **Extension.** A development build whose page API is open to the demo's origin. It builds the AWS and Cloudflare
-   plugins into `fork/out/plugins` and packages them:
+3. **Extension.** A development build whose page API is open to the demo's origin. It builds the Google Cloud, AWS
+   and Cloudflare plugins into `fork/out/plugins` and packages them:
 
    ```sh
    npm ci
    FORK_PRODUCT_ORIGINS=http://localhost:18474 npm run build:fork
    ```
 
-   For Cloudflare add `FORK_CF_OAUTH_CLIENT_ID=<your client id>`; for Google Cloud, `FORK_PLUGIN_DIR` (see above).
+   For Cloudflare add `FORK_CF_OAUTH_CLIENT_ID=<your client id>`.
    The build also compiles the circuits and keys into `private-proof/*/dist`, which the demo server uses to verify
    the bundle.
 

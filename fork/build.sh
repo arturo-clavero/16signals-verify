@@ -14,8 +14,9 @@
 #   FORK_PRODUCT_ORIGINS  comma-separated origins of the embedding pages allowed to use the page API
 #                         (dev default: http://localhost:5173, http://127.0.0.1:5173 and the same on port 5175)
 #   FORK_PLUGIN_DIR       directory of built plugin bundles <id>.js, packaged as the extension's built-in plugins
-#                         (the only plugin code it runs); default: aws-private-work and cloudflare-private-work built
-#                         from private-proof/*/plugin.ts by build-plugins.mjs into fork/out/plugins
+#                         (the only plugin code it runs); default: gcp-work, aws-private-work and
+#                         cloudflare-private-work built from private-proof/*/plugin.ts by build-plugins.mjs into
+#                         fork/out/plugins
 #   FORK_NAVIGATE_URLS    comma-separated exact https URLs (no query or fragment) a trusted plugin may send its own
 #                         window to (e.g. an account switcher); default none
 #   FORK_EXTRA_HOSTS      comma-separated extra host match patterns (https://host/path*) for content scripts and
@@ -112,9 +113,9 @@ if [ -n "${FORK_PLUGIN_DIR:-}" ]; then
     echo "warning: the extension will have no built-in plugin (nothing can run)" >&2
   fi
 else
-  # No FORK_PLUGIN_DIR: the AWS and Cloudflare plugins, built from source below (after npm ci).
+  # No FORK_PLUGIN_DIR: the GCP, AWS and Cloudflare plugins, built from source below (after npm ci).
   PLUGIN_DIR="$OUT/plugins"; BUILD_PLUGINS=1
-  echo "built-in plugins: aws-private-work and cloudflare-private-work from source (no FORK_PLUGIN_DIR)"
+  echo "built-in plugins: gcp-work, aws-private-work and cloudflare-private-work from source (no FORK_PLUGIN_DIR)"
 fi
 CF_CLIENT_ID="${FORK_CF_OAUTH_CLIENT_ID:-}"
 if [ -n "$CF_CLIENT_ID" ]; then

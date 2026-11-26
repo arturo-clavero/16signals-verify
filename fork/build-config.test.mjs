@@ -79,7 +79,7 @@ test('a production build fails closed on missing or bad values', t => {
 test('config.example.env as is (empty values) keeps the development defaults', t => {
   const { status, out } = run(t, readFileSync(join(here, 'config.example.env'), 'utf8'));
   assert.equal(status, 97, out);
-  assert.match(out, /aws-private-work and cloudflare-private-work from source/);
+  assert.match(out, /gcp-work, aws-private-work and cloudflare-private-work from source/);
 });
 
 test('without FORK_PLUGIN_DIR a production build packages cloudflare-private-work, so it needs the OAuth client id', t => {
