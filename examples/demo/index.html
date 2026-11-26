@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private proof demo</title>
+<style>
+  :root { --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --line: #d6d3d1; --card: #fff; --accent: #1d4ed8; --ok: #15803d; --bad: #b91c1c; --warn: #a16207; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #44403c; --card: #292524; --accent: #93c5fd; --ok: #4ade80; --bad: #f87171; --warn: #facc15; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { margin: 8px 0; }
+  .muted { color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-top: 16px; }
+  h2 { font-size: 16px; margin: 0 0 8px; }
+  fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  label { display: inline-flex; gap: 6px; align-items: center; }
+  .fields { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+  input[type=text], select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  button, a.button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer; text-decoration: none; display: inline-block; }
+  a.button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  pre, code { font: 13px/1.5 ui-monospace, monospace; }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .status { font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Private proof demo</h1>
+  <p class="muted">Prove recent Google Cloud, AWS or Cloudflare activity from your own browser session, then download a
+    proof package anyone can re-check. Runs against your local TLS verifier; see <code>examples/demo/README.md</code>.</p>
+
+  <section>
+    <h2>1. Extension</h2>
+    <p id="extension" class="muted">Looking for the extension…</p>
+  </section>
+
+  <section>
+    <h2>2. Provider</h2>
+    <fieldset id="providers"></fieldset>
+    <div class="fields" id="gcp-fields" hidden>
+      <label>Project id <input type="text" id="project" placeholder="my-project-123" autocomplete="off" spellcheck="false"></label>
+      <label>Window <select id="window"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label>
+      <p class="muted">The project id goes to the extension only, never to this server.</p>
+    </div>
+    <div class="row"><button id="start" disabled>Prove</button></div>
+  </section>
+
+  <section>
+    <h2>3. Progress</h2>
+    <pre id="log">Nothing yet.</pre>
+  </section>
+
+  <section id="result" hidden>
+    <h2>4. Proof package</h2>
+    <p id="status" class="status"></p>
+    <pre id="lines"></pre>
+    <div class="row">
+      <button id="download">Download package</button>
+      <a class="button secondary" href="/verify/" target="_blank" rel="noopener">Open the verify page</a>
+    </div>
+    <p class="muted">On the verify page, drop the downloaded file. Or check it from a terminal at the repository root:</p>
+    <pre id="command"></pre>
+  </section>
+</main>
+<script type="module">
+const $ = id => document.getElementById(id);
+const config = await (await fetch('/config')).json();
+let plugins = [];
+let pkg = null;
+
+const log = text => {
+  const line = `${new Date().toLocaleTimeString()}  ${text}`;
+  $('log').textContent = $('log').textContent === 'Nothing yet.' ? line : `${$('log').textContent}\n${line}`;
+};
+const selected = () => document.querySelector('input[name=provider]:checked')?.value;
+const pluginFor = provider => plugins.find(p => p.id === config.providers[provider]?.pluginId);
+const refresh = () => {
+  const provider = selected();
+  $('gcp-fields').hidden = provider !== 'gcp';
+  $('start').disabled = !provider || !pluginFor(provider) || (provider === 'gcp' && !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test($('project').value.trim()));
+};
+
+for (const [id, p] of Object.entries(config.providers)) {
+  const label = document.createElement('label');
+  const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'provider', value: id });
+  input.addEventListener('change', refresh);
+  label.append(input, p.label);
+  $('providers').append(label);
+}
+$('project').addEventListener('input', refresh);
+
+// The extension's page script sets window.tlsn on allowed origins (FORK_PRODUCT_ORIGINS) only.
+for (let i = 0; i < 25 && !window.tlsn?.builtInPlugins; i++) await new Promise(r => setTimeout(r, 200));
+plugins = [...(window.tlsn?.builtInPlugins ?? [])];
+$('extension').className = plugins.length ? 'ok' : 'bad';
+$('extension').textContent = !window.tlsn
+  ? `Not found. Load the extension built with FORK_PRODUCT_ORIGINS=${location.origin}, then reload this page.`
+  : plugins.length ? `Found, with built-in plugins: ${plugins.map(p => p.id).join(', ')}.`
+  : 'Found, but it has no built-in plugins: build it with FORK_PLUGIN_DIR.';
+refresh();
+
+/** Posts TLSN_RUN_BUILTIN and resolves with the plugin's result, logging the extension's replies. */
+function runBuiltIn(payload) {
+  return new Promise((resolve, reject) => {
+    const ackTimer = setTimeout(() => { done(); reject(new Error('no ACK within 10 s: is the extension loaded for this origin?')); }, 10000);
+    const onMessage = event => {
+      const d = event.data;
+      if (event.source !== window || event.origin !== location.origin || d?.requestId !== payload.requestId) return;
+      if (d.type === 'TLSN_RUN_BUILTIN_ACK') { clearTimeout(ackTimer); log('extension: run accepted (ACK). Sign in in the window that opens and keep it open.'); }
+      else if (d.type === 'TLSN_PLUGIN_PROGRESS') log(`plugin: ${d.method} ${d.status} ${d.index}/${d.total}`);
+      else if (d.type === 'TLSN_PROVE_PROGRESS') log(`prover: ${d.message ?? d.step ?? JSON.stringify(d)}`);
+      else if (d.type === 'TLSN_RUN_BUILTIN_RESPONSE') {
+        done();
+        if (d.success) resolve(typeof d.result === 'string' ? JSON.parse(d.result) : d.result);
+        else reject(new Error(d.error || 'the run failed'));
+      }
+    };
+    const done = () => { clearTimeout(ackTimer); window.removeEventListener('message', onMessage); };
+    window.addEventListener('message', onMessage);
+    window.postMessage({ type: 'TLSN_RUN_BUILTIN', payload }, location.origin);
+  });
+}
+
+async function post(path, body) {
+  const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: response.status, body: await response.json() };
+}
+
+$('start').addEventListener('click', async () => {
+  const provider = selected();
+  const plugin = pluginFor(provider);
+  $('start').disabled = true; $('result').hidden = true; $('log').textContent = 'Nothing yet.';
+  let poll;
+  try {
+    const started = await post('/start', { provider, fingerprint: plugin.sha256, ...(provider === 'gcp' ? { windowDays: Number($('window').value) } : {}) });
+    if (started.status !== 200) throw new Error(started.body.error);
+    const { proofId, payload } = started.body;
+    log(`attempt ${proofId}: running ${payload.pluginId} (${plugin.sha256.slice(0, 12)}…) against ${payload.verifierUrl}`);
+    const params = provider === 'gcp' ? { ...payload.params, privateInput: { projectId: $('project').value.trim() } } : payload.params;
+    let seen = 0;
+    poll = setInterval(async () => {
+      const { received } = await (await fetch(`/status/${proofId}`)).json();
+      for (const r of received.slice(seen)) log(`verifier webhook: ${r.step} (${r.serverName})${r.receipt ? ', signed receipt' : ', NO receipt: is the attestor key set?'}`);
+      seen = received.length;
+    }, 1500);
+    const bundle = await runBuiltIn({ ...payload, params: JSON.stringify(params) });
+    log(`extension: proof bundle with ${bundle?.proofs?.length ?? 0} proofs over ${bundle?.sessionIds?.length ?? 0} sessions; sending it to the server`);
+    let reply;
+    for (const until = Date.now() + 60000; ;) {
+      reply = await post('/bundle', { proofId, bundle });
+      if (reply.status !== 409 || Date.now() > until) break;
+      log(`waiting for receipts (${reply.body.have}/${reply.body.need})…`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    if (reply.status !== 200) throw new Error(reply.body.error);
+    show(provider, reply.body);
+    log('done.');
+  } catch (error) {
+    log(`failed: ${error.message}`);
+  } finally {
+    clearInterval(poll);
+    refresh();
+  }
+});
+
+function show(provider, result) {
+  pkg = { provider, json: `${JSON.stringify(result.package, null, 2)}\n` };
+  $('status').className = `status ${result.status === 'verified' ? 'ok' : result.status === 'failed' ? 'bad' : 'warn'}`;
+  $('status').textContent = `${result.status}: ${result.claim ?? 'no claim'}`;
+  $('lines').textContent = result.lines.join('\n');
+  const claim = result.claim ? ` --claim '${result.claim}'` : '';
+  $('command').textContent = `curl -s ${location.origin}/did.json > did.json\nnode packages/proof-check/cli.mjs --proof ${provider}-package.json --did did.json${claim}`;
+  $('result').hidden = false;
+}
+
+$('download').addEventListener('click', () => {
+  if (!pkg) return;
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([pkg.json], { type: 'application/json' })), download: `${pkg.provider}-package.json` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+</script>
+</body>
+</html>

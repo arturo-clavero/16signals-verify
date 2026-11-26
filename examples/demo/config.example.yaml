@@ -1,0 +1,6 @@
+# TLS verifier webhook config for the demo: every verified session (any provider host) is posted to the demo server.
+# Mounted as /app/config.yaml. From inside Docker the host is host.docker.internal (on Linux, run the container with
+# --add-host=host.docker.internal:host-gateway). Running the verifier without Docker: use http://localhost:18474/webhook.
+webhooks:
+  "*":
+    url: "http://host.docker.internal:18474/webhook"
