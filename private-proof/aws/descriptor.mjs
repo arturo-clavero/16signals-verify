@@ -1,8 +1,9 @@
-// AWS plugged into packages/proof-check: pinned keys, the claim from a verified result or checked against the public
-// inputs, and its headline.
+// AWS plugged into packages/proof-check: pinned keys, TLS hosts, the claim from a verified result or checked against
+// the public inputs, and its headline.
 import pins from './generated/pins.json' with { type: 'json' };
 import { AWS_OPERATIONS, AWS_SKILL_AREAS } from './operation-catalog.mjs';
 import { AWS_SKILL_GROUPS } from './skill-groups.mjs';
+import { AWS_CLOUDTRAIL_HOSTS } from './request.mjs';
 
 const ACTIVITIES = AWS_OPERATIONS.map(entry => entry.id);
 const GROUPS = AWS_SKILL_GROUPS.map(group => group.id);
@@ -14,6 +15,8 @@ export default Object.freeze({
   id: 'aws',
   kind: 'AWS_PRIVATE_RESULT',
   pins,
+  /** TLS hosts by position in a proof: the IAM identity session, then CloudTrail in a supported Region. */
+  hosts: index => (index === 0 ? ['iam.amazonaws.com'] : [...AWS_CLOUDTRAIL_HOSTS]),
 
   /** `result` is verifyAwsBundle's return value. */
   claimFromResult(result) {

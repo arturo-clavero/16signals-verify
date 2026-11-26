@@ -54,6 +54,12 @@ test('the registry plugs into proof-check and an anchored attestation checks end
   assert.equal(other.status, 'not-found');
 });
 
+test('the registry finds the anchored attestation by the proof hash it names', async () => {
+  const registry = bnbRegistry({ uid: UID, client: chain(), now: NOW });
+  assert.deepEqual(await registry.findByProofHash({ proofHash: fields.proofHash }), [signed]);
+  assert.deepEqual(await registry.findByProofHash({ proofHash: 'd'.repeat(64) }), []);
+});
+
 test('publishing sends attest to BAS and returns the uid from its Attested event', async () => {
   const bas = NETWORKS['bsc-testnet'].bas;
   let sent;

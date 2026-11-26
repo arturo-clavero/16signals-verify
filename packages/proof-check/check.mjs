@@ -3,6 +3,7 @@
 import { verifyAttestation } from './attestation.mjs';
 import { pinnedKeyHash, proofHash, publicBundle, resolvePins } from './bundle.mjs';
 import { bundleCommitment } from './commitment.mjs';
+import { isProofPackage } from './package/check-package.mjs';
 
 /**
  * One provider (evidence type) plugged into the checks. Only `id` is required.
@@ -28,6 +29,8 @@ import { bundleCommitment } from './commitment.mjs';
  * @property {(query: { commitment: string }) => Promise<object[]>} findAttestations Candidate signed attestations.
  * @property {(query: { commitment: string, proofHash: string }) => Promise<{ json: string } | null>} findBundle The public
  *   bundle as JSON text, or null.
+ * @property {(query: { proofHash: string }) => Promise<object[]>} [findByProofHash] Signed attestations naming a proof
+ *   package's hash (the package `on-chain` check).
  */
 /**
  * Trusted verifier keys (the shape of `verify/keys.json`). `id` is `verifierKeyId(publicKeyPem)`.
@@ -58,14 +61,15 @@ export const RESTS_ON_SIGNATURE = Object.freeze([
   'The zero-knowledge proofs verify against the pinned keys. This page does not re-run the ZK verifier.',
 ]);
 
-/** Accepts a dropped file: a public bundle, a signed attestation, or { attestation, bundle }. */
+/** Accepts a dropped file: a public bundle, a signed attestation, { attestation, bundle }, or a proof package. */
 export function parseDropped(text) {
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('Not a JSON file.'); }
   if (value && typeof value.kind === 'string' && Array.isArray(value.proofs)) return { bundle: value };
+  if (isProofPackage(value)) return { package: value };
   if (value?.type === 'tlsn-attestation') return { attestation: value };
   if (value && (value.attestation || value.bundle)) return { attestation: value.attestation, bundle: value.bundle };
-  throw new Error('Unrecognised file: expected a proof bundle or an attestation.');
+  throw new Error('Unrecognised file: expected a proof bundle, an attestation or a proof package.');
 }
 
 const byId = (providers, id) => (providers ?? []).find(descriptor => descriptor?.id === id);

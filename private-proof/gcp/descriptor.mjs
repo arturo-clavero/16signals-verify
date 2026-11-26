@@ -1,5 +1,5 @@
-// Google Cloud plugged into packages/proof-check: pinned keys, the claim from a verified result or from the public
-// inputs, and its headline.
+// Google Cloud plugged into packages/proof-check: pinned keys, TLS hosts, the claim from a verified result or from the
+// public inputs, and its headline.
 import pins from './generated/verification-keys.json' with { type: 'json' };
 import { BATCHES } from './policy.mjs';
 
@@ -10,6 +10,8 @@ export default Object.freeze({
   id: 'gcp',
   kind: 'GCP_PRIVATE_RESULT',
   pins,
+  /** TLS hosts by position in a proof: the identity session, then the log reads. */
+  hosts: index => [index === 0 ? 'accounts.google.com' : 'logging.clients6.google.com'],
 
   /** Only observed skill groups; empty and denied stay private. `result` is verifyBundle's return value. */
   claimFromResult(result) {

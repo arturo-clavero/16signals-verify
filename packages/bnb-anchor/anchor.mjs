@@ -84,7 +84,10 @@ export async function readAnchor({ uid, client, network = 'bsc-testnet', now }) 
   return decodeAnchor(record, { now });
 }
 
-/** A proof-check Registry ({ findAttestations, findBundle }) backed by one BAS UID; `anchor()` returns the decoded record. */
+/**
+ * A proof-check Registry ({ findAttestations, findBundle, findByProofHash }) backed by one BAS UID; `anchor()` returns
+ * the decoded record.
+ */
 export function bnbRegistry({ uid, client, network, now }) {
   let anchor;
   const load = async () => (anchor ??= await readAnchor({ uid, client, network, now }));
@@ -94,6 +97,10 @@ export function bnbRegistry({ uid, client, network, now }) {
       return found && found.attestation.commitment === commitment ? [found.attestation] : [];
     },
     async findBundle() { return null; },
+    async findByProofHash({ proofHash }) {
+      const found = await load();
+      return found && found.attestation.proofHash === proofHash ? [found.attestation] : [];
+    },
     anchor: load,
   };
 }

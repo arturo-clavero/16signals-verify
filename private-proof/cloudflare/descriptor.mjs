@@ -1,7 +1,8 @@
-// Cloudflare plugged into packages/proof-check: pinned keys, the claim from a verified result, and its headline.
+// Cloudflare plugged into packages/proof-check: pinned keys, TLS hosts, the claim from a verified result, and its headline.
 // The public inputs do not determine the claim, so it is checked for format and known positions only.
 import pins from './generated/pins.json' with { type: 'json' };
 import { CLOUDFLARE_SKILL_GROUPS } from './skill-groups.mjs';
+import { CF_HOSTS } from './request.mjs';
 
 const GROUPS = CLOUDFLARE_SKILL_GROUPS.map(group => group.id);
 const fail = reason => { throw new Error(`PROOF_BUNDLE_INVALID: ${reason}`); };
@@ -11,6 +12,7 @@ export default Object.freeze({
   id: 'cloudflare',
   kind: 'CLOUDFLARE_PRIVATE_RESULT',
   pins,
+  hosts: CF_HOSTS,
 
   /** Audit-log page runs: the skill groups with at least one proven row, as 1-based catalog positions. */
   claimFromResult(result) {

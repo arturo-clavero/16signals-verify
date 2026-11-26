@@ -1,0 +1,24 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/did/v1",
+    "https://w3id.org/security/suites/jws-2020/v1"
+  ],
+  "id": "did:web:verifier.test.invalid",
+  "verificationMethod": [
+    {
+      "id": "did:web:verifier.test.invalid#tlsn-attestor",
+      "type": "JsonWebKey2020",
+      "controller": "did:web:verifier.test.invalid",
+      "publicKeyJwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    }
+  ],
+  "assertionMethod": [
+    "did:web:verifier.test.invalid#tlsn-attestor"
+  ]
+}
