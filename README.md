@@ -7,7 +7,7 @@
 >   (`private-proof/`: Google Cloud, AWS and Cloudflare)
 > - built-in plugins, an origin-gated page API and proving-flow changes (`packages/extension`, `packages/plugin-sdk`)
 > - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
-> - anchoring of signed attestations on BNB Smart Chain through the BNB Attestation Service (`crops/bnb-anchor`)
+> - anchoring of signed attestations on BNB Smart Chain through the BNB Attestation Service (`packages/bnb-anchor`)
 >
 > Licensed like upstream: MIT or Apache-2.0, at your option.
 
@@ -17,7 +17,7 @@ A verified proof ends as a signed attestation: a small record saying which provi
 that was proven (for example the skill groups and their levels), the time window, a commitment to the private values,
 the proof hash and the verifier's Ed25519 signature. By default it is a file the user keeps.
 
-BNB Smart Chain makes that record public and durable without anyone hosting the file. [`crops/bnb-anchor`](crops/bnb-anchor)
+BNB Smart Chain makes that record public and durable without anyone hosting the file. [`packages/bnb-anchor`](packages/bnb-anchor)
 writes the signed attestation into the BNB Attestation Service (BAS), the attestation contract and schema registry
 that BNB Chain already runs. This repository deploys no contract of its own: it registers one schema and writes one
 record per attestation. The [verify page](verify/) reads a record back by its BAS UID and runs exactly the checks it
@@ -49,7 +49,7 @@ Details, schema and commands: [docs/bnb.md](docs/bnb.md).
   either goes away, signed attestations and public proof bundles are plain files the user keeps and can share; a signed attestation can also be
   anchored on BNB Smart Chain, where anyone can read it by its UID; and [`verify/`](verify/) is a static page anyone can host. Anyone can run their own verifier from this repository.
 - **Open source.** MIT or Apache-2.0 ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)). Everything
-  builds from this repository: the extension with `npm run build:fork`; [`crops/`](crops/) and `verify/` are plain ES
+  builds from this repository: the extension with `npm run build:fork`; [`packages/proof-check`](packages/proof-check), [`packages/bnb-anchor`](packages/bnb-anchor) and `verify/` are plain ES
   modules with no build step.
 - **Privacy.** The provider sees an ordinary session from the user's browser. The verifier, in Proxy mode, sees the
   user's IP address, the hosts contacted, timing and traffic sizes, and receives private values only as blinded hash

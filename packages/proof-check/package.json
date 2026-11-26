@@ -1,5 +1,5 @@
 {
-  "name": "@tlsn-fork/proof-bundle",
+  "name": "@tlsn-fork/proof-check",
   "version": "0.1.0",
   "description": "Canonical commitment and signed attestation for a private TLSNotary proof bundle",
   "type": "module",

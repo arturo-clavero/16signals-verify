@@ -105,7 +105,7 @@ Pinned artifact hashes are checked by `artifact-registry.mjs`; rebuild artifacts
 { attribution: 'iam-user', windowDays: 90, observations: [{ group, eventSource, ... }] } // page runs
 ```
 
-[`crops/proof-bundle/cloud.mjs`](../../crops/proof-bundle/cloud.mjs) (`claimOf`) turns the result into the public claim.
+[`packages/proof-check/cloud.mjs`](../../packages/proof-check/cloud.mjs) (`claimOf`) turns the result into the public claim.
 Claims admit only lowercase words, digits and separators:
 
 | Claim | Used for |

@@ -155,13 +155,13 @@ The fork extends the server for private proofs:
 Prepare the core once before a native build: `bash core/prepare-core.sh "$PWD/core/tlsn"`. The Docker images
 do this themselves and use the repository root as build context.
 
-### CROPS packages (`crops/`)
+### CROPS packages (`packages/proof-check`, `packages/bnb-anchor`)
 
 | Package | Role |
 | --- | --- |
-| [`crops/proof-bundle`](../crops/proof-bundle) | Canonical JSON, the bundle commitment, Ed25519 attestations, and the adapter from a verified GCP, AWS or Cloudflare bundle to commitment fields |
+| [`packages/proof-check`](../packages/proof-check) | Canonical JSON, the bundle commitment, Ed25519 attestations, and the adapter from a verified GCP, AWS or Cloudflare bundle to commitment fields |
 
-`crops/proof-bundle` is a plain ES module (Node 22+ and current browsers), with no build step.
+`packages/proof-check` is a plain ES module (Node 22+ and current browsers), with no build step.
 
 ### Verify page (`verify/`)
 
@@ -207,7 +207,7 @@ account). Their public inputs include the blinded hashes, the lengths of hidden 
 
 **Learned by the relying party.** The coarse claim only. For GCP it is `gcp:observed:<groups>` with a 7, 30 or 90-day
 window, for example `gcp:observed:g1,g4`. For AWS it is one of, with a 90-day window (`claimOf` in
-[`cloud.mjs`](../crops/proof-bundle/cloud.mjs)):
+[`cloud.mjs`](../packages/proof-check/cloud.mjs)):
 
 - `aws:activity:<operation ids>:iam-user`, for example `aws:activity:iam-role-trust-update,security-group-ingress:iam-user`;
 - `aws:areas:<positions>:iam-user`, 1-based skill-area positions, when the operation names exceed 128 bytes;
@@ -218,7 +218,7 @@ For Cloudflare it is `cloudflare:groups:<positions>:user`, 1-based skill-group p
 [`private-proof/cloudflare/README.md`](../private-proof/cloudflare/README.md).
 
 The claim format admits only lowercase words, digits and separators
-([`commitment.mjs`](../crops/proof-bundle/commitment.mjs)), so no free text or identifier fits.
+([`commitment.mjs`](../packages/proof-check/commitment.mjs)), so no free text or identifier fits.
 
 **Published.** The attestation (claim, proof hash, verification-key hashes, optional core and plugin digests, times)
 and its signature, as a file the user keeps and can share; the public bundle only if the operator chooses to share it.
@@ -283,7 +283,7 @@ packages/plugin-sdk/  plugin SDK (upstream + fork changes)
 private-proof/gcp/    GCP circuits, client plan, browser prover, bundle verifier
 private-proof/aws/    AWS circuits, client plan, browser prover, bundle verifier
 private-proof/cloudflare/  Cloudflare circuits, session plan, browser prover, bundle verifier
-crops/proof-bundle/   commitment and attestations
+packages/proof-check/   commitment and attestations
 verify/               static verify page and keys.json
 servers/verifier/     upstream TLSNotary verifier server
 docs/                 this documentation

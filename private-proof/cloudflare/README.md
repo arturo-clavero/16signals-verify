@@ -102,7 +102,7 @@ Pinned artifact hashes are checked by `artifact-registry.mjs`; rebuild artifacts
 { attribution: 'cloudflare-user', windowDays: 90, observations: [{ group, ... }] }
 ```
 
-[`crops/proof-bundle/cloud.mjs`](../../crops/proof-bundle/cloud.mjs) (`claimOf`) turns it into the public claim, which
+[`packages/proof-check/cloud.mjs`](../../packages/proof-check/cloud.mjs) (`claimOf`) turns it into the public claim, which
 admits only lowercase words, digits and separators:
 
 | Claim | Meaning |

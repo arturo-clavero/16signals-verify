@@ -38,7 +38,7 @@ function render(result) {
 
 // An attestation anchored on BNB Chain (BAS), read from a public RPC. A file dropped afterwards can add its bundle.
 async function bnb(uid) {
-  const [{ createPublicClient, http }, { NETWORKS, bnbRegistry }] = await Promise.all([import('viem'), import('../crops/bnb-anchor/anchor.mjs')]);
+  const [{ createPublicClient, http }, { NETWORKS, bnbRegistry }] = await Promise.all([import('viem'), import('../packages/bnb-anchor/anchor.mjs')]);
   const network = new URLSearchParams(location.search).get('network') === 'bsc' ? 'bsc' : 'bsc-testnet';
   const client = createPublicClient({ transport: http(NETWORKS[network].rpcUrl) });
   const registry = bnbRegistry({ uid, client, network });

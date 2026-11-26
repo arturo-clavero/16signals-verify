@@ -1,5 +1,5 @@
 // Pure verification logic for the static verify page. No DOM, no network: I/O is injected so Node tests run it as is.
-import { bundleCommitment, proofHash, publicBundle, verifyAttestation } from '../crops/proof-bundle/index.mjs';
+import { bundleCommitment, proofHash, publicBundle, verifyAttestation } from '../packages/proof-check/index.mjs';
 import { AWS_OPERATIONS, AWS_SKILL_AREAS } from '../private-proof/aws/operation-catalog.mjs';
 import { AWS_SKILL_GROUPS } from '../private-proof/aws/skill-groups.mjs';
 import { CLOUDFLARE_SKILL_GROUPS } from '../private-proof/cloudflare/skill-groups.mjs';

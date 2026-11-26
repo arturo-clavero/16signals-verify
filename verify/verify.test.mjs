@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { BATCHES } from '../private-proof/gcp/policy.mjs';
-import { bundleCommitment, createAttestation, fromVerifiedBundle, signAttestation, verifierKeyId } from '../crops/proof-bundle/index.mjs';
+import { bundleCommitment, createAttestation, fromVerifiedBundle, signAttestation, verifierKeyId } from '../packages/proof-check/index.mjs';
 import { describeClaim, parseDropped, verifyCommitment } from './verify.mjs';
 
 const loadJson = async path => JSON.parse(await readFile(new URL(path, import.meta.url)));

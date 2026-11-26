@@ -59,7 +59,7 @@ openssl pkey -in attest-key.pem -pubout -out attest-pub.pem
 openssl pkey -pubin -in attest-pub.pem -outform DER | sha256sum | cut -c1-32
 ```
 
-The same id comes from `verifierKeyId(publicKeyPem)` in [`crops/proof-bundle`](../crops/proof-bundle). Add the key
+The same id comes from `verifierKeyId(publicKeyPem)` in [`packages/proof-check`](../packages/proof-check). Add the key
 to `verify/keys.json`:
 
 ```json
@@ -83,7 +83,7 @@ by editing this file.
 The page is static, but it imports files from outside `verify/`, so serve the **repository root**:
 
 - `verify/` (page, `keys.json`);
-- `crops/proof-bundle/`;
+- `packages/proof-check/`;
 - `private-proof/gcp/policy.mjs`, `private-proof/gcp/generated/` and `private-proof/aws/generated/`, `private-proof/cloudflare/generated/` and `private-proof/cloudflare/skill-groups.mjs` (pinned keys and
   the GCP batch layout).
 

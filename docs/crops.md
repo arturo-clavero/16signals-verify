@@ -33,7 +33,7 @@ What holds:
 - Everything builds from this repository: the TLSNotary core is pinned by commit and its patches by hash
   ([`core/VERSION`](../core/VERSION)); circuits, verification keys and the WASM prover are built by
   [`fork/build.sh`](../fork/build.sh).
-- `crops/` and `verify/` are plain ES modules with no build step.
+- `packages/proof-check`, `packages/bnb-anchor` and `verify/` are plain ES modules with no build step.
 
 Build and run from the repository alone:
 
@@ -41,7 +41,7 @@ Build and run from the repository alone:
 npm ci
 npm run build:fork                 # -> fork/out/extension (load unpacked in Chrome)
 
-(cd crops/proof-bundle && npm test)
+(cd packages/proof-check && npm test)
 (cd servers/verifier && cargo run --release)  # your own verifier, see VERIFIER.md
 
 python3 -m http.server 8080        # serve the repository root, then open

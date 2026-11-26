@@ -30,7 +30,7 @@ does.
 ## Publishing
 
 ```sh
-cd crops/bnb-anchor && npm ci
+cd packages/bnb-anchor && npm ci
 export BNB_PRIVATE_KEY=0x…        # a funded account on the network (testnet BNB from the BNB Chain faucet)
 node cli.mjs register             # once per network: registers the schema, prints its UID
 node cli.mjs publish attestation.json   # a signed attestation, or { "attestation": …, "bundle": … }
@@ -46,7 +46,7 @@ gains nothing: it fails the signature check.
 ## Reading
 
 `verify/?uid=0x…` (or the UID field on the page). In code, `bnbRegistry({ uid, client })` from
-[`crops/bnb-anchor/anchor.mjs`](../crops/bnb-anchor/anchor.mjs) plugs into `verifyCommitment` in
+[`packages/bnb-anchor/anchor.mjs`](../packages/bnb-anchor/anchor.mjs) plugs into `verifyCommitment` in
 [`verify/verify.mjs`](../verify/verify.mjs). `readAnchor` rejects records of another schema, revoked records, and
 records whose indexed fields disagree with the signed attestation they carry.
 
