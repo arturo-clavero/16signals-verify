@@ -18,7 +18,7 @@ export function identityFixture(options = {}) {
   const expand = value => value.replace(/\x01(\d+)\x02/g, (_, id) => values[Number(id)]);
   const requestBody = options.requestBody ?? 'Action=GetUser&Version=2010-05-08';
   const request = `POST / HTTP/1.1\r\nhost: iam.amazonaws.com\r\nconnection: close\r\naccept-encoding: identity\r\n` +
-    `content-type: application/x-www-form-urlencoded\r\nx-16signals-nonce: ${expected.nonceMac}\r\n` +
+    `content-type: application/x-www-form-urlencoded\r\nx-tlsn-nonce: ${expected.nonceMac}\r\n` +
     `authorization: ${hide('SYNTHETIC_PRIVATE_AUTH')}\r\nx-amz-date: ${hide('20261029T080000Z')}\r\n` +
     `x-amz-security-token: ${hide('SYNTHETIC_PRIVATE_TOKEN')}\r\ncontent-length: ${Buffer.byteLength(expand(requestBody))}\r\n\r\n${requestBody}`;
   const response = `HTTP/1.1 200 OK\r\ncontent-type: ${options.contentType ?? 'text/xml'}\r\nconnection: close\r\n` +

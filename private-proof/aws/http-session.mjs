@@ -55,7 +55,7 @@ export function inspectAwsRequest(direction, expected, native, obligations, host
   const identity = expected.step === 'identity';
   const requestHeaders = new Map([
     ['host', identity ? 'iam.amazonaws.com' : host],
-    ['connection', 'close'], ['accept-encoding', 'identity'], ['x-16signals-nonce', expected.nonceMac],
+    ['connection', 'close'], ['accept-encoding', 'identity'], ['x-tlsn-nonce', expected.nonceMac],
     ['content-type', identity ? 'application/x-www-form-urlencoded' : 'application/x-amz-json-1.1'],
   ]);
   if (!identity) requestHeaders.set('x-amz-target', 'com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.LookupEvents');

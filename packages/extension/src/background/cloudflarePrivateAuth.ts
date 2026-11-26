@@ -2,10 +2,11 @@ import type { GcpPrivateRoute } from './gcpPrivateCompletion';
 import { livePrivateRoute } from './gcpPrivateCompletion';
 
 /**
- * 16signals fork (Cloudflare): the OAuth sign-in for one private Cloudflare run. Authorization Code + PKCE with the
- * public "16signals" client, through chrome.identity (Cloudflare's consent window; redirect to this extension's
- * chromiumapp.org URL). The token goes only to the offscreen run that asked (one token per run route), lives in memory
- * there and is revoked when the run ends (1 h expiry otherwise). It is never stored or sent to 16signals.
+ * Cloudflare: the OAuth sign-in for one private Cloudflare run. Authorization Code + PKCE with your public OAuth
+ * client (its id is set at build time, FORK_CF_OAUTH_CLIENT_ID), through chrome.identity (Cloudflare's consent window;
+ * redirect to this extension's chromiumapp.org URL). The token goes only to the offscreen run that asked (one token per
+ * run route), lives in memory there and is revoked when the run ends (1 h expiry otherwise). It is never stored or sent
+ * to the site that asked for the proof.
  */
 declare const __FORK_CF_OAUTH_CLIENT_ID__: string | undefined;
 export const CF_OAUTH = Object.freeze({

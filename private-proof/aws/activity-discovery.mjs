@@ -1,6 +1,6 @@
 /**
  * Local, unproven discovery of an IAM user's CloudTrail write activity over the 90 days before `end`.
- * Nothing found here is sent to 16signals or claimed: it only chooses which events the proven page sessions fetch.
+ * Nothing found here is sent to the site that asked for the proof or claimed: it only chooses which events the proven page sessions fetch.
  *
  * LookupEvents allows one lookup attribute (Username here), 50 rows per page, newest first, 2 requests/s per account
  * and Region. One newest-first query over 90 days stops at the busiest recent days, so the window is cut into time

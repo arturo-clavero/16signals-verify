@@ -73,7 +73,7 @@ const OffscreenApp: React.FC = () => {
             return sm.executePlugin(activeCode, request.requestId ?? undefined,
               runSessionData(request.sessionData, prepared.sha256), privateModule);
           };
-          // 16signals fork (Cloudflare): OAuth token from the background, local discovery, page sessions, proofs here.
+          // Cloudflare: OAuth token from the background, local discovery, page sessions, proofs here.
           if (request.pluginId === 'cloudflare-private-work') {
             if (privateRunning || !request.requestId) return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' };
             let run: CloudflarePrivateWitnessRun | undefined;

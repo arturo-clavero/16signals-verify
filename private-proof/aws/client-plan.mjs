@@ -39,7 +39,7 @@ export function planAwsSession(meta, transcripts) {
     };
     for (const [direction, message] of [['sent', sent], ['recv', recv]]) {
       const publicHeaders = new Set(['content-length', 'transfer-encoding', 'content-encoding', 'content-type', 'connection']);
-      if (direction === 'sent') for (const name of ['host', 'x-16signals-nonce', 'accept-encoding', ...(!identity ? ['x-amz-target'] : [])]) publicHeaders.add(name);
+      if (direction === 'sent') for (const name of ['host', 'x-tlsn-nonce', 'accept-encoding', ...(!identity ? ['x-amz-target'] : [])]) publicHeaders.add(name);
       const wire = Uint32Array.from(transcripts[direction], (_, index) => index);
       for (const header of message.headers) if (!publicHeaders.has(header.name)) {
         for (let start = header.value.start; start < header.value.end; start += 2048) {

@@ -20,13 +20,13 @@ const collector = fetchAws => createAwsLocalSession({ attempt: attempt(), fetchA
 test('WebCrypto signatures match offline botocore IAM and CloudTrail vectors', async () => {
   // botocore SigV4Auth, frozen 2026-10-29T08:00:00Z, explicit synthetic credentials; no network.
   for (const [options, signature] of [
-    [{ kind: 'identity' }, 'e1a7c3ecfa1375632f1436e5ef1a1ef060608970bd8773b5773407ca88d34deb'],
-    [{ kind: 'event', eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, '4897e6c48f10b296a0859e959406f9b18905d51c3c4f9d1f9639eda88abad2ae'],
+    [{ kind: 'identity' }, 'daaa7d2f390b845c781edfffe6965c8c0d9a73f53220433d104d1181d111577d'],
+    [{ kind: 'event', eventId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, '6e768745cd93d552150b209fba4c2c12c6fa45d9a9ab9cd91c0ac8e03fa850a3'],
   ]) {
     const request = await signAwsPrivateRequest(options, credentials(), { nonceMac: 'n'.repeat(43), now });
     assert.ok(request.headers.authorization.endsWith(`Signature=${signature}`));
     assert.equal(request.headers['x-amz-date'], '20261029T080000Z');
-    assert.equal(request.headers['x-16signals-nonce'], 'n'.repeat(43));
+    assert.equal(request.headers['x-tlsn-nonce'], 'n'.repeat(43));
     assert.equal(request.headers['accept-encoding'], 'identity');
   }
 });
@@ -43,7 +43,7 @@ test('fixed signer refuses arbitrary requests, permanent credentials, stale cred
   const value = credentials();
   const pending = signAwsPrivateRequest({ kind: 'identity' }, value, { nonceMac: 'n'.repeat(43), now });
   value.secretAccessKey = 'x'.repeat(40); value.accessKeyId = 'ASIA' + 'B'.repeat(16);
-  assert.ok((await pending).headers.authorization.endsWith('Signature=e1a7c3ecfa1375632f1436e5ef1a1ef060608970bd8773b5773407ca88d34deb'));
+  assert.ok((await pending).headers.authorization.endsWith('Signature=daaa7d2f390b845c781edfffe6965c8c0d9a73f53220433d104d1181d111577d'));
 });
 
 test('response reader bounds bytes, erases owned chunks and returns only fixed failures', async () => {

@@ -1,5 +1,5 @@
 /**
- * Local, unproven discovery and the choice of what to prove. Nothing here is sent to 16signals.
+ * Local, unproven discovery and the choice of what to prove. Nothing here is sent to the site that asked for the proof.
  *
  * discoverCloudflare({ read, userId, accountId, now }) reads the candidate's own successful non-view rows over the
  *   lookback (newest first, 1,000 per read, cursor), within CF_DISCOVERY budget. `read(request)` performs an unproven

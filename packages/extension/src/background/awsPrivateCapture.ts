@@ -2,7 +2,7 @@ import { awsConsoleSession, awsPrivateCredentials } from '../aws-private/browser
 import { livePrivateRoute, type GcpPrivateRoute } from './gcpPrivateCompletion';
 
 /** Request header that marks the extension's own credential re-fetch in the managed tab's header log. */
-export const AWS_CAPTURE_MARKER = 'x-16signals-capture';
+export const AWS_CAPTURE_MARKER = 'x-tlsn-capture';
 
 type LoggedHeader = { id: string; requestHeaders?: Array<{ name: string; value?: string }> };
 const SESSION_FIELDS = ['cookie', 'x-csrf-token', 'origin'] as const;

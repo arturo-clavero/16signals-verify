@@ -24,7 +24,7 @@ export async function readConsoleCredentials(raw: unknown, sender: { id?: string
     code = 'FAILED';
     const fetchAws = deps.fetchAws ?? fetch;
     const body = await readAwsPrivateResponse(url, { method: 'POST', mode: 'same-origin', credentials: 'include',
-      headers: { 'x-csrf-token': csrfToken, 'x-16signals-capture': marker } },
+      headers: { 'x-csrf-token': csrfToken, 'x-tlsn-capture': marker } },
       { fetchAws: async (url, init) => { const response = await fetchAws(url, init); status = response.status; return response; } });
     code = 'INVALID';
     const credentials = awsPrivateCredentials(JSON.parse(body));

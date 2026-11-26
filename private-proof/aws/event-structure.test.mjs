@@ -44,7 +44,7 @@ test('requires exact read-only lookup request shape and private event selection'
 });
 
 test('requires the authenticated HTTP request to carry the intended host, operation and nonce', () => {
-  for (const [name, value] of [['host', 'attacker.invalid'], ['x-16signals-nonce', 'X'.repeat(43)],
+  for (const [name, value] of [['host', 'attacker.invalid'], ['x-tlsn-nonce', 'X'.repeat(43)],
     ['x-amz-target', 'DifferentOperation'], ['accept-encoding', 'gzip']]) {
     rejects(eventFixture({ mutateHeaders: headers => { headers.find(row => row[0] === name)[1] = value; } }));
   }

@@ -85,7 +85,7 @@ export function eventFixture(options = {}) {
   responseSlots.sort((a, b) => a.start - b.start);
   const requestHeaders = [
     ['host', 'cloudtrail.us-east-1.amazonaws.com'], ['connection', 'close'], ['accept-encoding', 'identity'],
-    ['content-type', 'application/x-amz-json-1.1'], ['x-16signals-nonce', fixtureExpected.nonceMac],
+    ['content-type', 'application/x-amz-json-1.1'], ['x-tlsn-nonce', fixtureExpected.nonceMac],
     ['x-amz-target', 'com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.LookupEvents'],
     ['authorization', 'SYNTHETIC_PRIVATE_AUTHORIZATION', true], ['x-amz-date', '20261029T080000Z', true],
     ['x-amz-security-token', 'SYNTHETIC_PRIVATE_SESSION_TOKEN', true],

@@ -47,7 +47,7 @@ export function planAwsPageSession(meta, transcripts, eventIds) {
         hide(direction, at, Math.min(at + 2048, end));
       }
     };
-    const sentPublic = new Set(['content-length', 'content-type', 'connection', 'host', 'x-16signals-nonce', 'accept-encoding', 'x-amz-target']);
+    const sentPublic = new Set(['content-length', 'content-type', 'connection', 'host', 'x-tlsn-nonce', 'accept-encoding', 'x-amz-target']);
     for (const header of sent.headers) if (!sentPublic.has(header.name)) hideHeader('sent', sentBytes, header.value.start, header.value.end);
     const request = parseJsonStructure(sent.body.bytes).root;
     const value = request?.entries?.[0]?.value?.items?.[0]?.entries?.[1]?.value;

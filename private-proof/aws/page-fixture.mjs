@@ -55,7 +55,7 @@ export function pageSessionFixture({ region = 'us-east-1', step = 'P0', sessionI
   const request = buildAwsRequest({ kind: 'page', region, userName: PAGE_IDENTITY.userName, start, end });
   const serverName = new URL(request.url).hostname;
   const requestHeaders = { ...request.headers, host: serverName, 'x-amz-date': '20261029T080000Z',
-    'x-amz-security-token': 'SYNTHETIC_PRIVATE_SESSION_TOKEN', 'x-16signals-nonce': expected.nonceMac,
+    'x-amz-security-token': 'SYNTHETIC_PRIVATE_SESSION_TOKEN', 'x-tlsn-nonce': expected.nonceMac,
     authorization: 'SYNTHETIC_PRIVATE_AUTHORIZATION', 'accept-encoding': 'identity', connection: 'close' };
   const sent = Buffer.from(`POST / HTTP/1.1\r\n${Object.entries(requestHeaders).map(([name, value]) => `${name}: ${value}\r\n`).join('')}` +
     `content-length: ${Buffer.byteLength(request.body)}\r\n\r\n${request.body}`);

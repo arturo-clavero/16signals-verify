@@ -53,7 +53,7 @@ export async function signAwsPrivateRequest(options, credentials, { nonceMac, no
   const service = options.kind === 'identity' ? 'iam' : 'cloudtrail', region = options.kind === 'identity' ? AWS_REGION : awsCloudTrailRegion(new URL(request.url).hostname) ?? fail();
   const date = new Date(now).toISOString().replace(/[:-]|\.\d{3}/g, '');
   const headers = { ...request.headers, host: new URL(request.url).hostname, 'x-amz-date': date,
-    'x-amz-security-token': copy.sessionToken, 'x-16signals-nonce': nonceMac };
+    'x-amz-security-token': copy.sessionToken, 'x-tlsn-nonce': nonceMac };
   const names = Object.keys(headers).sort(), signedHeaders = names.join(';');
   const scope = `${date.slice(0, 8)}/${region}/${service}/aws4_request`;
   let key = encoder.encode(`AWS4${copy.secretAccessKey}`);
@@ -200,7 +200,7 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
         phase = 'IDENTITY_ACCOUNT';
         if (accountId !== undefined && accountId !== identity.accountId) fail();
         if (identityOnly) { const request = await sign({ kind: 'identity' }); check(); return [request]; }
-        // Local and unproven: never sent to 16signals. Only the page sessions' transcripts and proofs make a claim.
+        // Local and unproven: never sent to the site that asked for the proof. Only the page sessions' transcripts and proofs make a claim.
         phase = 'DISCOVERY';
         const end = Math.floor(attempt.issuedAt / 1000), userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1);
         let discoveryReads = 0;

@@ -1,6 +1,6 @@
 /**
  * Local collection in the extension, with the candidate's OAuth token (held in memory only): who the candidate is,
- * which account, which rows exist, and the requests the run proves. Nothing here reaches 16signals.
+ * which account, which rows exist, and the requests the run proves. Nothing here reaches the site that asked for the proof.
  *
  * createCloudflareLocalSession({ attempt, fetchCf, identityOnly }).prepare(token) -> [identity request, page request...]
  * `identityOnly` (fast check): the identity request alone, with no account lookup or discovery.

@@ -24,7 +24,7 @@ function fixture() {
 type Logged = { id: string; url: string; method: string; timestamp: number; requestHeaders: Array<{ name: string; value: string }> };
 function ownFetch(header: Logged, sent: unknown, edit?: { name: string; value: string }, marker = (sent as { marker: string }).marker): Logged {
   return { ...header, id: 'own-fetch', timestamp: Date.now(), requestHeaders: [...header.requestHeaders.map(row =>
-    row.name === edit?.name ? { ...row, value: edit.value } : row), { name: 'X-16signals-Capture', value: marker }] };
+    row.name === edit?.name ? { ...row, value: edit.value } : row), { name: 'X-Tlsn-Capture', value: marker }] };
 }
 const consoleRequest = (header: Logged, id: string, edit: { name: string; value: string }): Logged => ({ ...header, id, timestamp: Date.now(),
   requestHeaders: header.requestHeaders.map(row => row.name === edit.name ? { ...row, value: edit.value } : row) });
@@ -142,7 +142,7 @@ describe('AWS isolated content credential fetch', () => {
   it('uses same-origin cookies with a fixed endpoint and returns a closed credential shape', async () => {
     const d = deps(), result = await readConsoleCredentials(message, sender, d);
     expect(result.accessKeyId).toMatch(/^ASIA/);
-    expect(d.fetchAws).toHaveBeenCalledWith(message.url, expect.objectContaining({ method: 'POST', credentials: 'include', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { 'x-csrf-token': 'csrf', 'x-16signals-capture': message.marker } }));
+    expect(d.fetchAws).toHaveBeenCalledWith(message.url, expect.objectContaining({ method: 'POST', credentials: 'include', mode: 'same-origin', redirect: 'error', cache: 'no-store', headers: { 'x-csrf-token': 'csrf', 'x-tlsn-capture': message.marker } }));
     expect(Object.keys(result).sort()).toEqual(['accessKeyId', 'expiration', 'secretAccessKey', 'sessionToken']);
   });
   it('names the refused check, including a marker-less message from a background of another build', async () => {
