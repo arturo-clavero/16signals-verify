@@ -36,12 +36,26 @@ function render(result) {
   box.hidden = false;
 }
 
-async function run(dropped) {
+// An attestation anchored on BNB Chain (BAS), read from a public RPC. A file dropped afterwards can add its bundle.
+async function bnb(uid) {
+  const [{ createPublicClient, http }, { NETWORKS, bnbRegistry }] = await Promise.all([import('viem'), import('../crops/bnb-anchor/anchor.mjs')]);
+  const network = new URLSearchParams(location.search).get('network') === 'bsc' ? 'bsc' : 'bsc-testnet';
+  const client = createPublicClient({ transport: http(NETWORKS[network].rpcUrl) });
+  const registry = bnbRegistry({ uid, client, network });
+  const anchor = await registry.anchor();
+  if (!anchor) throw new Error('No attestation with this UID on BNB Chain.');
+  return { registry, commitment: anchor.attestation.commitment };
+}
+
+let anchored = null;
+
+async function run(dropped = {}) {
   $('result').hidden = false;
   $('result').replaceChildren(text('div', 'Checking…', 'status'));
   try {
     const [keys, policy] = await Promise.all([loadJson('./keys.json'), import('../private-proof/gcp/policy.mjs').catch(() => ({}))]);
-    render(await verifyCommitment({ dropped, keys, loadJson, gcpBatches: policy.BATCHES }));
+    const lookup = anchored && !dropped.attestation ? anchored : {};
+    render(await verifyCommitment({ dropped, keys, loadJson, gcpBatches: policy.BATCHES, ...lookup }));
   } catch (error) {
     $('result').replaceChildren(text('div', `✗ ${error.message}`, 'status bad'));
   }
@@ -52,6 +66,12 @@ async function readFile(file) {
   catch (error) { $('result').hidden = false; $('result').replaceChildren(text('div', `✗ ${error.message}`, 'status bad')); }
 }
 
+async function lookUp(uid) {
+  try { anchored = await bnb(uid.trim().toLowerCase()); await run(); }
+  catch (error) { anchored = null; $('result').hidden = false; $('result').replaceChildren(text('div', `✗ ${error.message}`, 'status bad')); }
+}
+
+$('form').addEventListener('submit', event => { event.preventDefault(); lookUp($('uid').value); });
 $('file').addEventListener('change', event => { if (event.target.files[0]) readFile(event.target.files[0]); });
 const drop = $('drop');
 drop.addEventListener('dragover', event => { event.preventDefault(); drop.classList.add('over'); });
@@ -61,3 +81,5 @@ drop.addEventListener('drop', event => {
   if (event.dataTransfer.files[0]) readFile(event.dataTransfer.files[0]);
 });
 
+const initial = new URLSearchParams(location.search).get('uid');
+if (initial) { $('uid').value = initial; lookUp(initial); }
