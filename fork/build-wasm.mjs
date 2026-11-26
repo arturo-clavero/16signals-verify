@@ -124,7 +124,8 @@ async function buildAndStage(upstream, cache) {
   // post-handshake batch synchronization, and the prover must be built from exactly both.
   assert.equal(patchesDigest(join(coreKit, 'patches')), corePatchesSha256, 'WASM_CORE_PATCHES_HASH');
   assert.equal(patchesDigest(join(coreKit, 'mpz-patches')), mpzPatchesSha256, 'WASM_MPZ_PATCHES_HASH');
-  const toolchain = resolve(process.env.TLSN_WASM_TOOLCHAIN || join(homedir(), '.cache/gcp-private-proof/toolchains', pins.toolchain));
+  // Rust embeds the real sysroot path, even when the configured toolchain directory is a symlink.
+  const toolchain = realpathSync(resolve(process.env.TLSN_WASM_TOOLCHAIN || join(homedir(), '.cache/gcp-private-proof/toolchains', pins.toolchain)));
   const rustc = join(toolchain, 'bin/rustc'), cargo = join(toolchain, 'bin/cargo');
   const compiler = run(rustc, ['-vV']);
   assert(compiler.includes(`release: ${pins.rustcRelease}\n`) &&

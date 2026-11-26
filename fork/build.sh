@@ -107,7 +107,7 @@ done
 node "$AWS/build-artifacts.mjs"
 PRIVATE_SOURCE="$ROOT/packages/extension/src/gcp-private"
 mkdir -p "$PRIVATE_SOURCE/generated"
-for module in browser-client client-plan authenticated-transcript gcp-structure http-structure json-structure policy verify-bundle; do
+for module in browser-link browser-client client-plan authenticated-transcript gcp-structure http-structure json-structure policy verify-bundle; do
   cp "$GCP/$module.mjs" "$PRIVATE_SOURCE/$module.mjs"
 done
 cp "$GCP/generated/catalog.json" "$PRIVATE_SOURCE/generated/catalog.json"
@@ -200,7 +200,13 @@ const extra = (process.env.EXTRA_HOSTS || "").split(",").filter(Boolean).map((h)
   return h;
 });
 const hosts = [...new Set([...GCP, ...product, ...extra])];
-m.host_permissions = [...hosts, ...AWS_CONSOLE, "https://iam.amazonaws.com/*", "https://cloudtrail.us-east-1.amazonaws.com/*"];
+// AWS page sessions read CloudTrail in each commercial Region; the list equals AWS_REGIONS in
+// private-proof/aws/request.mjs (build-manifest.test.mjs checks it). Exact hosts, no wildcard.
+const AWS_REGIONS = ["us-east-1", "us-east-2", "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-east-2", "ap-northeast-1",
+  "ap-northeast-2", "ap-northeast-3", "ap-south-1", "ap-south-2", "ap-southeast-1", "ap-southeast-2", "ap-southeast-3", "ap-southeast-4",
+  "ap-southeast-5", "ap-southeast-6", "ap-southeast-7", "ca-central-1", "ca-west-1", "eu-central-1", "eu-central-2", "eu-north-1",
+  "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-2", "eu-west-3", "il-central-1", "me-central-1", "me-south-1", "mx-central-1", "sa-east-1"];
+m.host_permissions = [...hosts, ...AWS_CONSOLE, "https://iam.amazonaws.com/*", ...AWS_REGIONS.map((r) => "https://cloudtrail." + r + ".amazonaws.com/*")];
 if (m.content_scripts.length !== 1 || m.web_accessible_resources.length !== 1)
   throw new Error("upstream manifest changed: expected one content_scripts and one web_accessible_resources entry");
 m.content_scripts[0].matches = hosts;

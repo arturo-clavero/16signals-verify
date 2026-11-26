@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
+import { AWS_CLOUDTRAIL_HOSTS } from '../private-proof/aws/request.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const source = readFileSync(join(here, 'build.sh'), 'utf8');
@@ -49,6 +50,11 @@ test('package captures AWS early and the production guard limits the regional wi
   assert.deepEqual(manifest.content_scripts[1].js, manifest.content_scripts[0].js);
   for (const host of [...consoleHosts, 'https://iam.amazonaws.com/*', 'https://cloudtrail.us-east-1.amazonaws.com/*'])
     assert(manifest.host_permissions.includes(host));
+  // Exactly the CloudTrail hosts of the Regions page sessions may read, and no other amazonaws.com host.
+  assert.deepEqual(manifest.host_permissions.filter(host => host.includes('cloudtrail.')),
+    AWS_CLOUDTRAIL_HOSTS.map(host => `https://${host}/*`));
+  assert.deepEqual(manifest.host_permissions.filter(host => host.includes('.amazonaws.com')).filter(host => !host.includes('cloudtrail.')),
+    ['https://iam.amazonaws.com/*']);
   assert(!JSON.stringify([manifest.host_permissions, manifest.content_scripts, manifest.web_accessible_resources]).includes('github.com'));
   for (const host of ['https://accounts.google.com/*', 'https://console.cloud.google.com/*',
     'https://cloudconsole-pa.clients6.google.com/*', 'https://logging.clients6.google.com/*', 'https://app.example.com/*'])
