@@ -6,6 +6,7 @@ export interface CloudflarePrivateResult {
   proofs: Array<{ circuitId: string; proof: string; publicInputs: string[] }>;
 }
 export interface CloudflarePrivateModule extends PrivateProofModule {
+  readonly fastCheck?: boolean;
   clear(): void;
   getRevealPlan(session: Readonly<GcpPrivateSession>, transcripts: { sent: Uint8Array; recv: Uint8Array }): GcpPrivateRevealPlan;
 }
@@ -15,10 +16,12 @@ export function validateCloudflareAttempt(value: unknown, now?: number): void;
 export const CF_RUN_STEPS: readonly string[];
 export const CF_PAGE_STEPS: readonly string[];
 export const CF_API_HOST: string;
-export function createCloudflareLocalSession(options: { attempt: CloudflarePrivateAttempt; fetchCf?: typeof fetch }): {
+export function createCloudflareLocalSession(options: { attempt: CloudflarePrivateAttempt; fetchCf?: typeof fetch; identityOnly?: boolean }): {
   prepare(token: string): Promise<CloudflareRequest[]>; clear(): void;
 };
 export function sanitizeCloudflarePrivateResult(value: unknown): CloudflarePrivateResult;
 export function createCloudflarePrivateModule(options: {
   attempt: CloudflarePrivateAttempt; workerUrl: string; onProgress?: (value: { completedProofs: number }) => void;
+  fastSource?: { identityHash: string; length: number }; linkSecret?: Uint8Array;
 }): CloudflarePrivateModule;
+export function readCloudLink(provider: 'cloudflare', binding: string): Promise<Uint8Array | null>;

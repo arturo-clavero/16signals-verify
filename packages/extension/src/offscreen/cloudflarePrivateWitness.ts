@@ -33,6 +33,8 @@ export class CloudflarePrivateWitnessRun extends PrivateWitnessRun {
   get passedError(): string { return this.failure; }
   private readonly collectionSteps: { step: string; host: string }[];
   private readonly attempt: CloudflarePrivateAttempt;
+  /** Fast check (demo replay): the identity session only. */
+  private readonly fastCheck: boolean;
   constructor(run: Record<string, string>, requestId: string | null, attempt: CloudflarePrivateAttempt, module: CloudflarePrivateModule) {
     validateCloudflareAttempt(attempt);
     if (run.proofId !== attempt.proofId || run.pluginSha256 !== attempt.pluginSha256 || typeof module.getRevealPlan !== 'function') {
@@ -50,13 +52,14 @@ export class CloudflarePrivateWitnessRun extends PrivateWitnessRun {
       },
     });
     this.collectionSteps = steps;
+    this.fastCheck = module.fastCheck === true;
     this.attempt = { ...attempt };
     this.deadline = setTimeout(() => this.clear(), Math.min(CF_PRIVATE_TIMEOUT_MS, attempt.expiresAt - Date.now()));
   }
   /** `signIn` asks the background for the OAuth token (Cloudflare's consent window). */
   async collect(signIn: () => Promise<{ token?: string; error?: string }>): Promise<CloudflareRequest[]> {
     if (this.stopped || this.collection) { cloudflareOffscreenStage('COLLECT_BUSY'); throw new Error('CF_PRIVATE_COLLECTION_FAILED'); }
-    this.collection = createCloudflareLocalSession({ attempt: this.attempt });
+    this.collection = createCloudflareLocalSession({ attempt: this.attempt, identityOnly: this.fastCheck });
     try {
       const reply = await signIn();
       if (typeof reply?.token !== 'string' || !reply.token) {
@@ -65,7 +68,7 @@ export class CloudflarePrivateWitnessRun extends PrivateWitnessRun {
       }
       this.token = reply.token;
       const requests = await this.collection.prepare(this.token);
-      if (this.stopped || requests.length < 2 || requests.length > CF_RUN_STEPS.length) { cloudflareOffscreenStage('COLLECT_COUNT'); throw new Error('CF_PRIVATE_COLLECTION_FAILED'); }
+      if (this.stopped || requests.length < (this.fastCheck ? 1 : 2) || requests.length > (this.fastCheck ? 1 : CF_RUN_STEPS.length)) { cloudflareOffscreenStage('COLLECT_COUNT'); throw new Error('CF_PRIVATE_COLLECTION_FAILED'); }
       this.collectionSteps.splice(0, this.collectionSteps.length, ...requests.map((_, i) => ({ step: CF_RUN_STEPS[i], host: CF_API_HOST })));
       cloudflareOffscreenStage(`COLLECT_OK_${requests.length}`);
       return requests;

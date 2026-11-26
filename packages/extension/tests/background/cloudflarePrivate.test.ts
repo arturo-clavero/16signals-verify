@@ -74,3 +74,10 @@ it('refuses other senders, other routes, a bad state and a cancelled consent', a
   const noClient = tokenDeps({ clientId: '' });
   expect(await readCloudflareToken({ type: 'CF_PRIVATE_TOKEN', requestId: 'run-1' }, sender, routes(), noClient.deps)).toEqual({ error: 'CF_PRIVATE_COLLECTION_FAILED' });
 });
+
+it('completes a fast-check result (one identity session) as a closed copy', () => {
+  const fast = { ...result(), sessionIds: [result().sessionIds[0]],
+    proofs: [{ circuitId: 'headers-small-v1', proof: 'AQID', publicInputs: Array(528).fill('0') }, { circuitId: 'cf-identity-refresh-v1', proof: 'AQID', publicInputs: Array(66).fill('0') }] };
+  const done = takePrivateCompletion({ ...message(), result: fast }, sender, routes(), deps, 'cloudflare');
+  expect(done?.response).toEqual({ success: true, result: structuredClone(fast) });
+});

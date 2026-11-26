@@ -11,7 +11,7 @@ import { createGcpPrivateModule, readCloudLink } from '../../gcp-private/browser
 import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
 import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
 import { AwsPrivateWitnessRun, awsOffscreenStage, awsPrivateAttemptParam } from '../../offscreen/awsPrivateWitness';
-import { createCloudflarePrivateModule } from '../../cloudflare-private/browser-client.mjs';
+import { createCloudflarePrivateModule, readCloudLink as readCloudflareLink } from '../../cloudflare-private/browser-client.mjs';
 import { CloudflarePrivateWitnessRun, cloudflareOffscreenStage, cloudflarePrivateAttemptParam } from '../../offscreen/cloudflarePrivateWitness';
 
 const OffscreenApp: React.FC = () => {
@@ -77,10 +77,20 @@ const OffscreenApp: React.FC = () => {
           if (request.pluginId === 'cloudflare-private-work') {
             if (privateRunning || !request.requestId) return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' };
             let run: CloudflarePrivateWitnessRun | undefined;
+            let linkSecret: Uint8Array | null = null;
             try {
               const params = JSON.parse(request.values.params);
               const attempt = cloudflarePrivateAttemptParam(params?.privateAttempt, request.requestId, prepared.sha256);
-              const module = createCloudflarePrivateModule({ attempt, workerUrl: browser.runtime.getURL('cloudflare-private/browser-worker.js'),
+              // Fast check (demo replay): only when this browser saved the link to the recorded run's identity id.
+              const binding = params?.fastSource?.identityHash;
+              linkSecret = typeof binding === 'string' ? await readCloudflareLink('cloudflare', binding) : null;
+              const fastSource = linkSecret ? { identityHash: binding as string, length: params.fastSource.length } : undefined;
+              const effective = await prepare({ ...request, values: { ...request.values,
+                params: JSON.stringify({ ...params, fastCheck: !!fastSource }) } });
+              if ('error' in effective) throw new Error();
+              activeCode = effective.code;
+              const module = createCloudflarePrivateModule({ attempt, fastSource, linkSecret: linkSecret ?? undefined,
+                workerUrl: browser.runtime.getURL('cloudflare-private/browser-worker.js'),
                 onProgress: ({ completedProofs }) => {
                   browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,
                     progress: { method: 'CLOUDFLARE_ACCOUNT', status: 'busy', index: completedProofs, total: 64 } }).catch(() => {});
@@ -88,7 +98,7 @@ const OffscreenApp: React.FC = () => {
               });
               try { run = new CloudflarePrivateWitnessRun(runSessionData(request.sessionData, prepared.sha256), request.requestId, attempt, module); }
               catch { module.clear(); throw new Error(); }
-            } catch { cloudflareOffscreenStage('MODULE_FAILED'); run?.clear(); return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' }; }
+            } catch { cloudflareOffscreenStage('MODULE_FAILED'); linkSecret?.fill(0); run?.clear(); return { success: false, error: 'CF_PRIVATE_PROVING_FAILED' }; }
             privateRunning = true;
             const heartbeat = setInterval(() => {
               browser.runtime.sendMessage({ type: 'CF_PRIVATE_HEARTBEAT', requestId: request.requestId })
