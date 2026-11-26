@@ -19,9 +19,12 @@ Two jobs, kept apart:
 
 1. **Collect evidence.** The browser extension and a TLSNotary verifier server read activity from AWS, Google Cloud
    or Cloudflare without exposing credentials or private data. Zero-knowledge proofs are made in the browser. The
-   result is a proof package: a signed attestation and, optionally, a public proof bundle.
-2. **Verify evidence.** [`proof-check`](packages/proof-check) is the reusable engine. It rechecks the signature, the
-   claim, the zero-knowledge proofs' pinned keys and, if used, the blockchain record. It runs as a command-line tool
+   result is a proof package: the verifier's signed receipts, the disclosed data, the commitments and the
+   zero-knowledge proofs. A site can also issue a shorter signed attestation over the result.
+2. **Verify evidence.** [`proof-check`](packages/proof-check) is the reusable engine. For a proof package it
+   checks the verifier's receipt signatures, the server names, the signed data, re-runs the zero-knowledge proofs
+   against the pinned keys and, if used, checks the blockchain record. For an attestation it checks the signature,
+   the pinned keys and the claim. It runs as a command-line tool
    or a library (another app or script checks a proof), and it powers the [verify page](verify/) (a website where
    people upload and inspect a proof).
 
@@ -110,7 +113,7 @@ plugin and a new descriptor.
 | Extension | [`packages/extension`](packages/extension), [`fork/`](fork) | Chrome extension that runs the built-in proving plugins and exposes `window.tlsn.runBuiltIn()` to your page | `cp fork/config.example.env fork/config.env`, `npm ci && npm run build:fork`, load `fork/out/extension` unpacked |
 | Private proofs | [`private-proof/gcp`](private-proof/gcp), [`aws`](private-proof/aws), [`cloudflare`](private-proof/cloudflare) | Per provider: Noir circuits, the in-browser prover, the bundle verifier and the descriptor used by proof-check | [private-proof/README.md](private-proof/README.md) |
 | TLS verifier | [`servers/verifier`](servers/verifier) | Rust server that observes the TLS session, checks commitments and signs a receipt per proof | Docker or `cargo run`; see [servers/verifier/README.md](servers/verifier/README.md) |
-| proof-check | [`packages/proof-check`](packages/proof-check) | Rechecks signatures, claims, pinned proof keys and optional on-chain records; builds and signs attestations | `node packages/proof-check/cli.mjs ...` or `import` it |
+| proof-check | [`packages/proof-check`](packages/proof-check) | Re-checks proof packages (receipts, signed data, zero-knowledge proofs) and attestations (signature, pins, claim), plus optional on-chain records | `node packages/proof-check/cli.mjs --proof package.json` or `import` it |
 | BNB anchoring | [`packages/bnb-anchor`](packages/bnb-anchor) | Writes a signed attestation to BNB Chain through BAS and reads it back | `node packages/bnb-anchor/cli.mjs register \| publish \| read` |
 | Verify page | [`verify/`](verify) | Static page that checks a dropped file or a BNB attestation UID in the viewer's browser | Host the repository root; open `/verify/` |
 | Core pins | [`core/`](core) | Pinned, patched TLSNotary core used by the WASM prover and the verifier | `bash core/prepare-core.sh "$PWD/core/tlsn"` before a native verifier build |
@@ -210,8 +213,8 @@ sequenceDiagram
   P->>S: proof bundle
   S->>S: check bundle against receipts, sign attestation
   S->>P: attestation (+ optional public bundle)
-  P->>K: attestation file
-  K->>K: check signature, claim, pinned keys
+  P->>K: proof package (or attestation)
+  K->>K: check receipts, signed data, re-run ZK proofs
   S-->>B: optional: anchor the attestation (BAS)
   K-->>B: optional: look it up by UID
 ```
@@ -256,6 +259,11 @@ flowchart LR
 - **Noir circuits and pinned keys.** Circuits prove, in the browser, that the committed values have the right
   structure and meet the policy (for example a log entry is inside the window). Their verification keys are pinned by
   hash in each provider's `generated/` folder, and the pins are checked by `proof-check`.
+- **Proof packages.** A package holds, per TLS session, the verifier's signed receipt, the leaf layout, the disclosed
+  bytes with their salts, the commitments and the zero-knowledge proofs. `proof-check` rebuilds the signed root from
+  them, checks each server name against the provider's hosts, and re-runs the proofs with bb.js (browser or Node),
+  requiring their commitment inputs to equal the signed commit leaves. See
+  [packages/proof-check/README.md](packages/proof-check/README.md).
 - **Attestations and the bundle commitment.** The backend signs an Ed25519 attestation over a commitment: the
   `sha256` of the canonical JSON of the provider, the claim, the proof hash (hash of the public bundle), and the
   key hashes. See [docs/architecture.md](docs/architecture.md#data-flow-of-a-cloud-private-proof).
@@ -272,24 +280,29 @@ flowchart LR
 | Your backend | The claim, the proof bundle, the commitments | The attestation, after checking the bundle against the receipts |
 | Anyone with the attestation | The coarse claim, the commitment, the signature, and the bundle if it is shared (proofs and public inputs: blinded hashes, lengths of hidden values, the time cutoff) | Nothing |
 
-What a passed check means: a verifier key you trust signed exactly this claim, proof hash and pins; the published
+What a passed proof-package check means: a TLS verifier whose key you trust witnessed sessions with the provider's
+hosts; the disclosed data and commitments are exactly what it signed; and the zero-knowledge proofs verify against
+the pinned keys and open those signed commitments. The checker re-runs the proofs itself.
+
+What a passed attestation check means: a key you trust signed exactly this claim, proof hash and pins; the published
 bundle is the one that was signed; the bundle uses the verification keys pinned in this repository; and, where the
 provider's descriptor can recompute the claim from the public inputs (GCP, AWS event runs), the claim matches them.
 
 What it does not mean:
 
-- **Trust in the verifier key.** The page and CLI take from the signature that the proofs came from a real TLS session
-  with the provider, that the public inputs match that session, and that the zero-knowledge proofs verify. They do
-  not re-run the zero-knowledge verifier. Anyone can run their own verifier and publish its key; you decide which
-  keys to trust.
+- **Trust in the verifier key.** A proof package rests on the TLS verifier's receipt key; an attestation rests on
+  the key that signed it, which takes on trust that the proofs came from a real session and verify (attestation
+  checks do not re-run the zero-knowledge verifier). Anyone can run their own verifier and publish its key; you decide
+  which keys to trust.
 - **Proxy mode.** The verifier sees the provider's TLS records directly. A transcript is only as authentic as the
   verifier that observed it.
 - **Pins.** Verification keys are pinned in this repository. A descriptor without `pins` only checks that the keys
   cover the circuits used. A circuit bug is a bug in every proof made with it.
 - **Claims are coarse and positive.** A skill group that is not in the claim was not established, which is not evidence
   of no activity. Claims say nothing about configuration correctness or outcomes.
-- **Cloudflare claims.** The public inputs do not determine the claim, so its descriptor has no claim recomputation;
-  the claim rests on the signature.
+- **Claims from data.** No provider rebuilds its readable claim from the disclosed bytes yet (`claimFromData`), so
+  that check reads "not applicable". For Cloudflare the public inputs do not determine the skill groups either, so
+  its claim rests on the signature.
 - **GCP.** The name of the request header that carries the run's nonce is fixed by the circuit, so the proof only
   accepts a transcript with that header.
 - **Compromised browsers.** The user's browser and machine are assumed not to be compromised.

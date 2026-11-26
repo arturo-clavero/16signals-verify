@@ -1,6 +1,7 @@
 # Verify page
 
-A static page that checks a signed attestation, and its public proof bundle if there is one, in the viewer's browser.
+A static page that checks, in the viewer's browser, a proof package (receipts, signed data, zero-knowledge proofs re-run
+with bb.js) or a signed attestation and its public proof bundle.
 It uses [`packages/proof-check`](../packages/proof-check) for every check. The dropped file is read in the browser
 and sent nowhere. How to read the result: [docs/verification.md](../docs/verification.md).
 
@@ -13,7 +14,7 @@ python3 -m http.server 8080
 # http://localhost:8080/verify/
 ```
 
-Drop a JSON file: a signed attestation, or `{ "attestation": ..., "bundle": ... }`. With the BNB registry enabled, you
+Drop a JSON file: a proof package, a signed attestation, or `{ "attestation": ..., "bundle": ... }`. With the BNB registry enabled, you
 can also enter a BAS attestation UID, or open `/verify/?uid=0x...` (add `&network=bsc` for mainnet; testnet is the
 default). A looked-up record has no bundle; drop the bundle file afterwards to add its checks.
 
