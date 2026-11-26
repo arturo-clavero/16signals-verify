@@ -5,7 +5,7 @@ Anyone holding a signed attestation can check it. Nothing here needs an account,
 ## The verify page
 
 Open `verify/` on any static host of this repository and drop a JSON file on the page: a signed attestation, or `{
-"attestation": …, "bundle": … }` with the public proof bundle as well. The bundle is optional. There is no lookup by
+"attestation": …, "bundle": … }` with the public proof bundle as well, or a [proof package](#proof-packages). The bundle is optional. There is no lookup by
 commitment over the network. A dropped attestation's commitment is recomputed from its fields rather than taken from
 its label.
 
@@ -60,6 +60,28 @@ What the page **takes from the signature** and cannot check itself (it says so u
 - the zero-knowledge proofs verify. The page does not re-run the ZK verifier until the verification keys are hosted
   with it.
 
+## Proof packages
+
+A proof package carries what the TLSNotary verifier signed for a claim: its receipts (one per TLS session), the
+transcript pieces as leaf hashes, commitment digests or, when the claim needs them, disclosed bytes, and the
+zero-knowledge proofs over the hidden values. Drop one on the page, or run
+
+```sh
+node packages/proof-check/cli.mjs --proof package.json [--did did.json] [--uid <BAS uid>]
+```
+
+| Check | What it establishes |
+| --- | --- |
+| Every receipt is signed by the key in the issuer's DID document | The verifier named by the receipt's `kid` signed each session's server name, time and Merkle root. The key comes from `keys.json` (`dids`), `--did`, or, on the page, the issuer's `/.well-known/did.json` |
+| Every receipt names a host of the provider | Each session was with a host the provider descriptor lists (`hosts`), for its position in the proof |
+| The published pieces rebuild the signed Merkle root | The package's pieces are exactly the ranges the verifier signed |
+| The claim follows from the disclosed data | The descriptor rebuilt the claim from the disclosed bytes. When the package discloses none, the line reads *attested*: the claim is taken from the issuer |
+| The zero-knowledge proofs verify and open every signed commitment | The hidden values satisfy the pinned circuits, and the proofs are about the committed values the verifier signed. The page loads `@aztec/bb.js` for this step only |
+| The package hash is in an on-chain record signed by a listed key | An attestation naming `sha256(canonical package)`, signed by a key in `keys.json`, is anchored on BNB Chain: look up its UID first, then drop the package |
+
+A line that could not run here (no DID document, no registry, no prover library) is shown as such; it is not a pass.
+The package format and options are in the [package README](../packages/proof-check/README.md#proof-packages).
+
 ## Publishing a verifier key
 
 A verifier operator signs attestations with an Ed25519 key and publishes the public key.
@@ -98,7 +120,10 @@ The page is static, but it imports files from outside `verify/`, so serve the **
 - `packages/proof-check/` and `packages/bnb-anchor/`;
 - each `private-proof/<provider>/descriptor.mjs` listed in the config and the files it imports: the provider's
   `generated/` pins, `private-proof/gcp/policy.mjs` (the GCP batch layout), and the AWS and Cloudflare catalogs
-  (`operation-catalog.mjs`, `skill-groups.mjs`).
+  (`operation-catalog.mjs`, `skill-groups.mjs`), and the AWS and Cloudflare `request.mjs` (their TLS hosts).
+
+The page imports `viem` (BNB lookups) and `@aztec/bb.js` (zero-knowledge proofs in dropped packages) from esm.sh
+through the import map in `verify/index.html`, only when needed.
 
 Locally:
 
@@ -112,4 +137,5 @@ branch, folder `/`). The page is then at `https://<owner>.github.io/<repo>/verif
 same way.
 
 Who sees what: the static host sees the viewer's IP address. The dropped file is read in the browser and not sent
-anywhere. The page sends no referrer.
+anywhere. The page sends no referrer. Checking a proof package fetches the issuer's DID document from its did:web host
+unless `keys.json` lists it, and esm.sh serves the prover library.
