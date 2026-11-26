@@ -287,6 +287,11 @@ Cloudflare OAuth sign-in, whose client id comes from `FORK_CF_OAUTH_CLIENT_ID`).
    `FORK_KEY_FILE`, `FORK_PLUGIN_DIR` and, for Cloudflare, `FORK_CF_OAUTH_CLIENT_ID`. Leave it empty for a local
    development build (pages on `http://localhost:5173` or `:5175`).
 2. `npm ci && npm run build:fork`. A production build stops with a message when a required value is missing.
+   The build needs Linux x64 and three pinned tools, each checked before use: the Noir compiler
+   `nargo` 1.0.0-beta.19 (on `PATH` or `GCP_NOIR_NARGO`), the Rust toolchain `nightly-2026-05-21` with the
+   `wasm32-unknown-unknown` target and `rust-src` at `~/.cache/gcp-private-proof/toolchains/nightly-2026-05-21`
+   (a symlink to the rustup toolchain works; or `TLSN_WASM_TOOLCHAIN`), and clang 15.0.7 at `/usr/bin/clang` (or
+   `TLSN_WASM_CLANG`). The WASM build cache is `~/.cache/gcp-private-proof/wasm` (or `TLSN_WASM_CACHE`).
 3. Load `fork/out/extension` unpacked (`chrome://extensions`, Developer mode, Load unpacked).
 4. From your page (an allowed origin, top frame), call `window.tlsn.runBuiltIn({...})`, which posts this message:
 
