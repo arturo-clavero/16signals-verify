@@ -9,7 +9,10 @@ import { writeFileSync } from 'node:fs';
 const file = process.argv[2] ?? 'attestor-key.json';
 const jwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
 try {
-  writeFileSync(file, `${JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, d: jwk.d })}\n`, { mode: 0o600, flag: 'wx' });
+  writeFileSync(file, `${JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, d: jwk.d })}\n`, {
+    mode: 0o600,
+    flag: 'wx',
+  });
 } catch (error) {
   console.error(error.code === 'EEXIST' ? `${file} exists; not overwriting it` : error.message);
   process.exit(1);

@@ -3,8 +3,10 @@
 import pins from './generated/verification-keys.json' with { type: 'json' };
 import { BATCHES } from './policy.mjs';
 
-const fail = reason => { throw new Error(`PROOF_BUNDLE_INVALID: ${reason}`); };
-const days = window => (window ? ` in the last ${window} days` : '');
+const fail = (reason) => {
+  throw new Error(`PROOF_BUNDLE_INVALID: ${reason}`);
+};
+const days = (window) => (window ? ` in the last ${window} days` : '');
 
 export default Object.freeze({
   id: 'gcp',
@@ -12,27 +14,37 @@ export default Object.freeze({
   kind: 'GCP_PRIVATE_RESULT',
   pins,
   /** TLS hosts by position in a proof: the identity session, then the log reads. */
-  hosts: index => [index === 0 ? 'accounts.google.com' : 'logging.clients6.google.com'],
+  hosts: (index) => [index === 0 ? 'accounts.google.com' : 'logging.clients6.google.com'],
 
   /** Only observed skill groups; empty and denied stay private. `result` is verifyBundle's return value. */
   claimFromResult(result) {
-    if (!Array.isArray(result?.groups) || ![7, 30, 90].includes(result?.policy?.windowDays)) fail('gcp result');
-    const observed = result.groups.filter(group => group?.status === 'observed').map(group => {
-      if (typeof group.id !== 'string' || !/^g[0-9]{1,3}$/.test(group.id)) fail('gcp group');
-      return group.id;
-    }).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-    return { claim: `gcp:observed:${observed.join(',') || 'none'}`, window: result.policy.windowDays };
+    if (!Array.isArray(result?.groups) || ![7, 30, 90].includes(result?.policy?.windowDays))
+      fail('gcp result');
+    const observed = result.groups
+      .filter((group) => group?.status === 'observed')
+      .map((group) => {
+        if (typeof group.id !== 'string' || !/^g[0-9]{1,3}$/.test(group.id)) fail('gcp group');
+        return group.id;
+      })
+      .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    return {
+      claim: `gcp:observed:${observed.join(',') || 'none'}`,
+      window: result.policy.windowDays,
+    };
   },
 
   /** The observed groups and the window, recomputed from the timestamps-v1 public inputs of each batch. */
   claim(bundle, { batches = BATCHES } = {}) {
-    const timestamps = bundle.proofs.filter(entry => entry.circuitId === 'timestamps-v1');
+    const timestamps = bundle.proofs.filter((entry) => entry.circuitId === 'timestamps-v1');
     if (timestamps.length !== batches.length) return null;
-    const observed = [], windows = new Set();
+    const observed = [],
+      windows = new Set();
     timestamps.forEach((entry, batch) => {
       const values = entry.publicInputs.map(BigInt);
       // Layout: 6 x 32 hash bytes, 6 lengths, cutoff, windowDays. A non-zero length is an observed group.
-      batches[batch].groupIds.forEach((id, slot) => { if (values[192 + slot] > 0n) observed.push(id); });
+      batches[batch].groupIds.forEach((id, slot) => {
+        if (values[192 + slot] > 0n) observed.push(id);
+      });
       windows.add(Number(values[199]));
     });
     if (windows.size !== 1) return null;
@@ -43,7 +55,8 @@ export default Object.freeze({
   describe({ claim, window }) {
     if (!claim.startsWith('gcp:observed:')) return null;
     const groups = claim.slice('gcp:observed:'.length);
-    return groups === 'none' ? `Google Cloud: no activity observed${days(window)}.`
+    return groups === 'none'
+      ? `Google Cloud: no activity observed${days(window)}.`
       : `Google Cloud: activity observed in ${groups.split(',').length} skill group(s)${days(window)}.`;
   },
 });

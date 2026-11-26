@@ -10,30 +10,56 @@ import { verifyAwsBundle } from '../../private-proof/aws/verify-bundle.mjs';
 import { verifyCloudflareBundle } from '../../private-proof/cloudflare/verify-bundle.mjs';
 
 const ROOT = new URL('../../private-proof/', import.meta.url);
-const reader = dir => file => readFile(new URL(`${dir}/${file}`, ROOT));
+const reader = (dir) => (file) => readFile(new URL(`${dir}/${file}`, ROOT));
 const ATTEMPT_MS = 15 * 60 * 1000;
 
 /** The pinned circuits and keys a provider's `npm run build:fork` left in private-proof/<provider>/dist. */
 async function gcpRuntime() {
-  const [{ loadPinnedArtifacts }, { loadPinnedVerificationKeys, pinnedVerificationKey }, { createProofRuntime }] = await Promise.all([
-    import('../../private-proof/gcp/artifact-registry.mjs'), import('../../private-proof/gcp/verification-key-registry.mjs'),
-    import('../../private-proof/gcp/proof-runtime.mjs')]);
+  const [
+    { loadPinnedArtifacts },
+    { loadPinnedVerificationKeys, pinnedVerificationKey },
+    { createProofRuntime },
+  ] = await Promise.all([
+    import('../../private-proof/gcp/artifact-registry.mjs'),
+    import('../../private-proof/gcp/verification-key-registry.mjs'),
+    import('../../private-proof/gcp/proof-runtime.mjs'),
+  ]);
   const keys = await loadPinnedVerificationKeys(reader('gcp/dist/verification-keys'));
-  return { runtime: await createProofRuntime(await loadPinnedArtifacts(reader('gcp/dist/artifacts')), keys), vk: id => pinnedVerificationKey(keys, id) };
+  return {
+    runtime: await createProofRuntime(
+      await loadPinnedArtifacts(reader('gcp/dist/artifacts')),
+      keys,
+    ),
+    vk: (id) => pinnedVerificationKey(keys, id),
+  };
 }
 async function awsRuntime() {
-  const [{ loadAwsArtifacts, loadAwsVerificationKeys, pinnedAwsKey }, { createAwsProofRuntime }] = await Promise.all([
-    import('../../private-proof/aws/artifact-registry.mjs'), import('../../private-proof/aws/proof-runtime.mjs')]);
+  const [{ loadAwsArtifacts, loadAwsVerificationKeys, pinnedAwsKey }, { createAwsProofRuntime }] =
+    await Promise.all([
+      import('../../private-proof/aws/artifact-registry.mjs'),
+      import('../../private-proof/aws/proof-runtime.mjs'),
+    ]);
   const load = reader('aws/dist/artifacts');
   const keys = await loadAwsVerificationKeys(load);
-  return { runtime: await createAwsProofRuntime(await loadAwsArtifacts(load), keys), vk: id => pinnedAwsKey(keys, id) };
+  return {
+    runtime: await createAwsProofRuntime(await loadAwsArtifacts(load), keys),
+    vk: (id) => pinnedAwsKey(keys, id),
+  };
 }
 async function cloudflareRuntime() {
-  const [{ loadCloudflareArtifacts, loadCloudflareVerificationKeys, pinnedCloudflareKey }, { createCloudflareProofRuntime }] = await Promise.all([
-    import('../../private-proof/cloudflare/artifact-registry.mjs'), import('../../private-proof/cloudflare/proof-runtime.mjs')]);
+  const [
+    { loadCloudflareArtifacts, loadCloudflareVerificationKeys, pinnedCloudflareKey },
+    { createCloudflareProofRuntime },
+  ] = await Promise.all([
+    import('../../private-proof/cloudflare/artifact-registry.mjs'),
+    import('../../private-proof/cloudflare/proof-runtime.mjs'),
+  ]);
   const load = reader('cloudflare/dist/artifacts');
   const keys = await loadCloudflareVerificationKeys(load);
-  return { runtime: await createCloudflareProofRuntime(await loadCloudflareArtifacts(load), keys), vk: id => pinnedCloudflareKey(keys, id) };
+  return {
+    runtime: await createCloudflareProofRuntime(await loadCloudflareArtifacts(load), keys),
+    vk: (id) => pinnedCloudflareKey(keys, id),
+  };
 }
 
 /**
@@ -44,29 +70,78 @@ async function cloudflareRuntime() {
  */
 export const PROVIDERS = Object.freeze({
   gcp: {
-    label: 'Google Cloud', pluginId: 'gcp-work', method: 'GCP_WORK', descriptor: gcp, loadRuntime: gcpRuntime,
+    label: 'Google Cloud',
+    pluginId: 'gcp-work',
+    method: 'GCP_WORK',
+    descriptor: gcp,
+    loadRuntime: gcpRuntime,
     start({ now, windowDays = 30 }) {
       if (![7, 30, 90].includes(windowDays)) throw new Error('windowDays must be 7, 30 or 90');
       const policy = { windowDays, cutoff: now };
       // The page adds `privateInput: { projectId }`: the project id stays in the browser.
-      return { policy, context: {}, params: a => ({ ...policy, catalogDigest: CATALOG_DIGEST, proofId: a.proofId, nonceMac: a.nonceMac }) };
+      return {
+        policy,
+        context: {},
+        params: (a) => ({
+          ...policy,
+          catalogDigest: CATALOG_DIGEST,
+          proofId: a.proofId,
+          nonceMac: a.nonceMac,
+        }),
+      };
     },
-    verify: ({ sessions, bundle, attempt, runtime }) => verifyGcpBundle({ sessions, policy: attempt.policy, bundle, runtime }),
+    verify: ({ sessions, bundle, attempt, runtime }) =>
+      verifyGcpBundle({ sessions, policy: attempt.policy, bundle, runtime }),
   },
   aws: {
-    label: 'AWS', pluginId: 'aws-private-work', method: 'AWS_ACCOUNT', descriptor: aws, loadRuntime: awsRuntime,
+    label: 'AWS',
+    pluginId: 'aws-private-work',
+    method: 'AWS_ACCOUNT',
+    descriptor: aws,
+    loadRuntime: awsRuntime,
     start({ now }) {
-      const context = { issuedAt: now, expiresAt: now + ATTEMPT_MS, identityService: 'iam', region: 'us-east-1' };
-      return { context, params: a => ({ privateAttempt: { ...context, proofId: a.proofId, pluginSha256: a.pluginSha256, nonceMac: a.nonceMac } }) };
+      const context = {
+        issuedAt: now,
+        expiresAt: now + ATTEMPT_MS,
+        identityService: 'iam',
+        region: 'us-east-1',
+      };
+      return {
+        context,
+        params: (a) => ({
+          privateAttempt: {
+            ...context,
+            proofId: a.proofId,
+            pluginSha256: a.pluginSha256,
+            nonceMac: a.nonceMac,
+          },
+        }),
+      };
     },
-    verify: ({ sessions, bundle, runtime, now }) => verifyAwsBundle({ sessions, bundle, runtime, now }),
+    verify: ({ sessions, bundle, runtime, now }) =>
+      verifyAwsBundle({ sessions, bundle, runtime, now }),
   },
   cloudflare: {
-    label: 'Cloudflare', pluginId: 'cloudflare-private-work', method: 'CLOUDFLARE_ACCOUNT', descriptor: cloudflare, loadRuntime: cloudflareRuntime,
+    label: 'Cloudflare',
+    pluginId: 'cloudflare-private-work',
+    method: 'CLOUDFLARE_ACCOUNT',
+    descriptor: cloudflare,
+    loadRuntime: cloudflareRuntime,
     start({ now }) {
       const context = { issuedAt: now, expiresAt: now + ATTEMPT_MS };
-      return { context, params: a => ({ privateAttempt: { ...context, proofId: a.proofId, pluginSha256: a.pluginSha256, nonceMac: a.nonceMac } }) };
+      return {
+        context,
+        params: (a) => ({
+          privateAttempt: {
+            ...context,
+            proofId: a.proofId,
+            pluginSha256: a.pluginSha256,
+            nonceMac: a.nonceMac,
+          },
+        }),
+      };
     },
-    verify: ({ sessions, bundle, runtime, now }) => verifyCloudflareBundle({ sessions, bundle, runtime, now }),
+    verify: ({ sessions, bundle, runtime, now }) =>
+      verifyCloudflareBundle({ sessions, bundle, runtime, now }),
   },
 });

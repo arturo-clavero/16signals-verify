@@ -22,42 +22,66 @@ function parseJson(bytes, what) {
 
 /** The receipt's parts before any verification (the header names the key). */
 export function splitReceipt(jws) {
-  if (typeof jws !== 'string' || jws.length > MAX_JWS) throw new ReceiptError('the receipt is not a compact JWS');
+  if (typeof jws !== 'string' || jws.length > MAX_JWS)
+    throw new ReceiptError('the receipt is not a compact JWS');
   const parts = jws.split('.');
   if (parts.length !== 3) throw new ReceiptError('the receipt is not a compact JWS');
   const [header, payload, signature] = parts.map(base64Url);
-  if (!header || !payload || !signature) throw new ReceiptError('the receipt is not unpadded base64url');
+  if (!header || !payload || !signature)
+    throw new ReceiptError('the receipt is not unpadded base64url');
   const parsed = parseJson(header, 'header');
-  if (parsed.alg !== 'EdDSA' || parsed.typ !== RECEIPT_TYP || typeof parsed.kid !== 'string' || !KID.test(parsed.kid)) {
-    throw new ReceiptError(`the receipt header is not {alg: EdDSA, typ: ${RECEIPT_TYP}, kid: did:web:<host>#<key>}`);
+  if (
+    parsed.alg !== 'EdDSA' ||
+    parsed.typ !== RECEIPT_TYP ||
+    typeof parsed.kid !== 'string' ||
+    !KID.test(parsed.kid)
+  ) {
+    throw new ReceiptError(
+      `the receipt header is not {alg: EdDSA, typ: ${RECEIPT_TYP}, kid: did:web:<host>#<key>}`,
+    );
   }
-  return { header: parsed, payloadBytes: payload, signature, signingInput: utf8(`${parts[0]}.${parts[1]}`) };
+  return {
+    header: parsed,
+    payloadBytes: payload,
+    signature,
+    signingInput: utf8(`${parts[0]}.${parts[1]}`),
+  };
 }
 
 /** The DID a kid belongs to (`did:web:<host>`). */
-export const didOf = kid => KID.exec(kid ?? '')?.[1] ?? null;
+export const didOf = (kid) => KID.exec(kid ?? '')?.[1] ?? null;
 
 /** The did:web document URL for a DID (`did:web:<host>` -> `https://<host>/.well-known/did.json`). */
 export function didWebUrl(did) {
   const m = /^did:web:([^:#\s]+)((?::[^:#\s]+)*)$/.exec(did ?? '');
   if (!m) return null;
   const host = decodeURIComponent(m[1]);
-  return m[2] ? `https://${host}/${m[2].slice(1).split(':').map(decodeURIComponent).join('/')}/did.json` : `https://${host}/.well-known/did.json`;
+  return m[2]
+    ? `https://${host}/${m[2].slice(1).split(':').map(decodeURIComponent).join('/')}/did.json`
+    : `https://${host}/.well-known/did.json`;
 }
 
 /** The Ed25519 key `kid` names in a DID document, as 32 raw bytes. It must be listed in `assertionMethod`. */
 export function receiptKey(didDocument, kid) {
   const did = didOf(kid);
   if (!isRecord(didDocument)) throw new ReceiptError(`no DID document for ${did}`);
-  if (didDocument.id !== did) throw new ReceiptError(`the DID document is ${String(didDocument.id)}, the receipt names ${did}`);
-  const named = id => id === kid || (typeof id === 'string' && id.startsWith('#') && `${did}${id}` === kid);
-  const methods = Array.isArray(didDocument.verificationMethod) ? didDocument.verificationMethod : [];
-  const method = methods.find(entry => isRecord(entry) && named(entry.id));
+  if (didDocument.id !== did)
+    throw new ReceiptError(
+      `the DID document is ${String(didDocument.id)}, the receipt names ${did}`,
+    );
+  const named = (id) =>
+    id === kid || (typeof id === 'string' && id.startsWith('#') && `${did}${id}` === kid);
+  const methods = Array.isArray(didDocument.verificationMethod)
+    ? didDocument.verificationMethod
+    : [];
+  const method = methods.find((entry) => isRecord(entry) && named(entry.id));
   if (!method) throw new ReceiptError(`the DID document publishes no key ${kid}`);
   const assertion = Array.isArray(didDocument.assertionMethod) ? didDocument.assertionMethod : [];
-  if (!assertion.some(entry => named(isRecord(entry) ? entry.id : entry))) throw new ReceiptError(`${kid} is not an assertion key`);
+  if (!assertion.some((entry) => named(isRecord(entry) ? entry.id : entry)))
+    throw new ReceiptError(`${kid} is not an assertion key`);
   const jwk = method.publicKeyJwk;
-  if (!isRecord(jwk) || jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || 'd' in jwk) throw new ReceiptError(`${kid} is not a public Ed25519 key`);
+  if (!isRecord(jwk) || jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519' || 'd' in jwk)
+    throw new ReceiptError(`${kid} is not a public Ed25519 key`);
   const x = base64Url(jwk.x);
   if (!x || x.length !== 32) throw new ReceiptError(`${kid} is not a 32-byte Ed25519 key`);
   return { key: x, x: jwk.x };
@@ -65,10 +89,18 @@ export function receiptKey(didDocument, kid) {
 
 function parsePayload(bytes) {
   const p = parseJson(bytes, 'payload');
-  const ok = (p.v === 1 || p.v === 2) && typeof p.serverName === 'string' && typeof p.sessionId === 'string' &&
-    (p.proofId === undefined || typeof p.proofId === 'string') && typeof p.verifiedAt === 'string' &&
-    RFC3339.test(p.verifiedAt) && Number.isFinite(Date.parse(p.verifiedAt)) && typeof p.tlsnVersion === 'string' &&
-    isHex64(p.root) && Number.isSafeInteger(p.leafCount) && p.leafCount > 0;
+  const ok =
+    (p.v === 1 || p.v === 2) &&
+    typeof p.serverName === 'string' &&
+    typeof p.sessionId === 'string' &&
+    (p.proofId === undefined || typeof p.proofId === 'string') &&
+    typeof p.verifiedAt === 'string' &&
+    RFC3339.test(p.verifiedAt) &&
+    Number.isFinite(Date.parse(p.verifiedAt)) &&
+    typeof p.tlsnVersion === 'string' &&
+    isHex64(p.root) &&
+    Number.isSafeInteger(p.leafCount) &&
+    p.leafCount > 0;
   if (!ok) throw new ReceiptError('the signed payload is not a v1/v2 verifier receipt');
   return p;
 }
@@ -88,7 +120,8 @@ export async function verifyReceipt(jws, didDocument) {
   }
   const kid = parts.header.kid;
   const verdict = await verifyEd25519(key.key, parts.signingInput, parts.signature);
-  if (verdict === null) return { ok: null, reason: 'this platform has no Ed25519 in WebCrypto', kid };
+  if (verdict === null)
+    return { ok: null, reason: 'this platform has no Ed25519 in WebCrypto', kid };
   if (!verdict) return { ok: false, reason: `the signature does not verify under ${kid}`, kid };
   try {
     return { ok: true, payload: parsePayload(parts.payloadBytes), kid, x: key.x };

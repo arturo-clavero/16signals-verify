@@ -6,9 +6,10 @@ const HEX64 = /^[0-9a-f]{64}$/;
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export { toHex };
-export const isHex64 = value => typeof value === 'string' && HEX64.test(value);
-export const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-export const utf8 = text => new TextEncoder().encode(text);
+export const isHex64 = (value) => typeof value === 'string' && HEX64.test(value);
+export const isRecord = (value) =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+export const utf8 = (text) => new TextEncoder().encode(text);
 
 export function fromHex(value) {
   if (typeof value !== 'string' || !HEX.test(value)) throw new TypeError('expected lowercase hex');
@@ -20,13 +21,17 @@ export function fromHex(value) {
 export function concat(...parts) {
   const out = new Uint8Array(parts.reduce((n, part) => n + part.length, 0));
   let at = 0;
-  for (const part of parts) { out.set(part, at); at += part.length; }
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
   return out;
 }
 
 export function toBase64(bytes) {
   let binary = '';
-  for (let at = 0; at < bytes.length; at += 8192) binary += String.fromCharCode(...bytes.subarray(at, at + 8192));
+  for (let at = 0; at < bytes.length; at += 8192)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 8192));
   return btoa(binary);
 }
 
@@ -41,9 +46,15 @@ export function strictBase64(value, maxChars = 8 * 1024 * 1024) {
 
 /** Unpadded base64url to bytes, or null. */
 export function base64Url(value) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) return null;
-  const bytes = strictBase64(value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4));
-  return bytes && toBase64(bytes).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_') === value ? bytes : null;
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1)
+    return null;
+  const bytes = strictBase64(
+    value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4),
+  );
+  return bytes &&
+    toBase64(bytes).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_') === value
+    ? bytes
+    : null;
 }
 
 function subtle() {
@@ -53,7 +64,9 @@ function subtle() {
 }
 
 export async function sha256(...parts) {
-  return new Uint8Array(await subtle().digest('SHA-256', parts.length === 1 ? parts[0] : concat(...parts)));
+  return new Uint8Array(
+    await subtle().digest('SHA-256', parts.length === 1 ? parts[0] : concat(...parts)),
+  );
 }
 
 export const sha256Hex = async (...parts) => toHex(await sha256(...parts));
@@ -66,7 +79,11 @@ export async function verifyEd25519(publicKey32, message, signature64) {
   try {
     key = await subtle().importKey('raw', publicKey32, { name: 'Ed25519' }, false, ['verify']);
   } catch (error) {
-    if (error?.name === 'NotSupportedError' || /not supported|unrecognized/i.test(String(error?.message))) return null;
+    if (
+      error?.name === 'NotSupportedError' ||
+      /not supported|unrecognized/i.test(String(error?.message))
+    )
+      return null;
     return false;
   }
   try {

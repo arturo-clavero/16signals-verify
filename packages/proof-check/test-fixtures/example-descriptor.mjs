@@ -3,6 +3,6 @@ export default {
   id: 'example',
   kind: 'EXAMPLE_RESULT',
   pins: { circuits: { 'example-v1': { sha256: 'e'.repeat(64) } } },
-  claim: bundle => ({ claim: `example:value-${bundle.proofs[0].publicInputs[0]}`, window: 30 }),
+  claim: (bundle) => ({ claim: `example:value-${bundle.proofs[0].publicInputs[0]}`, window: 30 }),
   describe: ({ claim }) => `Example: ${claim.slice('example:'.length)}.`,
 };

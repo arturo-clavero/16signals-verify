@@ -28,35 +28,57 @@ import { checkZk } from './zk.mjs';
  */
 
 /** Reasons a check is `ok: null` without being a gap; they never make the result partial. */
-export const SETTLED_REASONS = Object.freeze({ ATTESTED: 'attested', NOT_APPLICABLE: 'not-applicable' });
+export const SETTLED_REASONS = Object.freeze({
+  ATTESTED: 'attested',
+  NOT_APPLICABLE: 'not-applicable',
+});
 
 const LABELS = Object.freeze({
-  'receipt-signature': 'Every receipt is signed by the key in the issuer\'s DID document',
+  'receipt-signature': "Every receipt is signed by the key in the issuer's DID document",
   'server-name': 'Every receipt names a host of the provider',
   'signed-root': 'The published pieces rebuild the signed Merkle root',
-  'claim-from-data': 'The claim follows from the proofs or the disclosed data, or is signed by a listed issuer key',
+  'claim-from-data':
+    'The claim follows from the proofs or the disclosed data, or is signed by a listed issuer key',
   'zk-proofs': 'The zero-knowledge proofs verify and open every signed commitment',
   'on-chain': 'The package hash is in an on-chain record signed by a listed key',
 });
 export const PACKAGE_CHECKS = Object.freeze(Object.keys(LABELS));
 
 const MAX_RUNS = 64;
-const check = (id, ok, detail, reason) => Object.freeze({ id, ok, label: LABELS[id], ...(detail ? { detail } : {}), ...(reason ? { reason } : {}) });
-const combine = oks => (oks.some(ok => ok === false) ? false : oks.some(ok => ok === null) ? null : true);
-const settled = c => c.ok === null && Object.values(SETTLED_REASONS).includes(c.reason);
+const check = (id, ok, detail, reason) =>
+  Object.freeze({
+    id,
+    ok,
+    label: LABELS[id],
+    ...(detail ? { detail } : {}),
+    ...(reason ? { reason } : {}),
+  });
+const combine = (oks) =>
+  oks.some((ok) => ok === false) ? false : oks.some((ok) => ok === null) ? null : true;
+const settled = (c) => c.ok === null && Object.values(SETTLED_REASONS).includes(c.reason);
 
 /** `proofHash = sha256(canonical JSON of the package)`. */
-export const packageHash = async pkg => sha256Hex(utf8(canonicalize(pkg)));
+export const packageHash = async (pkg) => sha256Hex(utf8(canonicalize(pkg)));
 
 /** Whether a parsed JSON value looks like a proof package (for file drops). */
-export const isProofPackage = value => isRecord(value) && value.v === 1 && typeof value.provider === 'string' && Array.isArray(value.runs);
+export const isProofPackage = (value) =>
+  isRecord(value) &&
+  value.v === 1 &&
+  typeof value.provider === 'string' &&
+  Array.isArray(value.runs);
 
 function shapeError(pkg, descriptor) {
   if (!isProofPackage(pkg)) return 'not a proof package v1';
   if (!descriptor) return `no descriptor for provider ${pkg.provider}`;
-  if (pkg.claim !== undefined && typeof pkg.claim !== 'string') return 'the package claim is not a string';
+  if (pkg.claim !== undefined && typeof pkg.claim !== 'string')
+    return 'the package claim is not a string';
   if (!pkg.runs.length || pkg.runs.length > MAX_RUNS) return 'the package has no runs';
-  if (pkg.runs.some(run => !isRecord(run) || typeof run.receipt !== 'string' || !Array.isArray(run.leaves))) return 'a run has no receipt or leaf table';
+  if (
+    pkg.runs.some(
+      (run) => !isRecord(run) || typeof run.receipt !== 'string' || !Array.isArray(run.leaves),
+    )
+  )
+    return 'a run has no receipt or leaf table';
   if (!isRecord(pkg.pins)) return 'the package has no pins';
   if (pkg.vks !== undefined && !isRecord(pkg.vks)) return 'the package vks is not an object';
   return null;
@@ -73,13 +95,23 @@ async function signedClaim({ attestation, anchored, known, pkg, proofHash, now }
     const key = known.get(attestation?.verifierKeyId);
     if (!key) return { ok: null, detail: 'the attestation given is not signed by a listed key' };
     const verdict = await verifyAttestation(attestation, key.publicKeyPem, { now });
-    if (!verdict.ok) return { ok: null, detail: `the attestation given does not verify (${verdict.reason})` };
+    if (!verdict.ok)
+      return { ok: null, detail: `the attestation given does not verify (${verdict.reason})` };
     trusted = { attestation, key };
   }
   if (!trusted) return { ok: null, detail: 'no attestation from a listed key' };
-  const { attestation: signed, key } = trusted, by = key.label ?? key.id;
-  if (signed.proofHash !== proofHash) return { ok: false, detail: `the attestation signed by ${by} names package ${signed.proofHash}, not ${proofHash}` };
-  if (signed.provider !== pkg.provider || signed.claim !== pkg.claim) return { ok: false, detail: `the attestation signed by ${by} backs ${JSON.stringify(signed.claim)}, not ${JSON.stringify(pkg.claim)}` };
+  const { attestation: signed, key } = trusted,
+    by = key.label ?? key.id;
+  if (signed.proofHash !== proofHash)
+    return {
+      ok: false,
+      detail: `the attestation signed by ${by} names package ${signed.proofHash}, not ${proofHash}`,
+    };
+  if (signed.provider !== pkg.provider || signed.claim !== pkg.claim)
+    return {
+      ok: false,
+      detail: `the attestation signed by ${by} backs ${JSON.stringify(signed.claim)}, not ${JSON.stringify(pkg.claim)}`,
+    };
   return { ok: true, detail: `${signed.claim}, signed by ${by}` };
 }
 
@@ -111,52 +143,117 @@ const allowedHosts = (descriptor, index) => {
  * @param {(check: object) => void} [options.onCheck] Called with each check as soon as it is decided.
  * @param {number} [options.now]
  */
-export async function checkPackage(pkg, { providers = [], keys, resolveDid, registries = [], claim, proofHash: expectedHash,
-  attestation, zk = {}, body, onCheck, now = Date.now() } = {}) {
-  const proofHash = body instanceof Uint8Array ? await sha256Hex(body) : isRecord(pkg) ? await packageHash(pkg).catch(() => null) : null;
-  const descriptor = isRecord(pkg) ? providers.find(entry => entry?.id === pkg.provider) : undefined;
-  const base = { proofHash, provider: isRecord(pkg) ? pkg.provider ?? null : null, claim: isRecord(pkg) ? pkg.claim ?? null : null };
+export async function checkPackage(
+  pkg,
+  {
+    providers = [],
+    keys,
+    resolveDid,
+    registries = [],
+    claim,
+    proofHash: expectedHash,
+    attestation,
+    zk = {},
+    body,
+    onCheck,
+    now = Date.now(),
+  } = {},
+) {
+  const proofHash =
+    body instanceof Uint8Array
+      ? await sha256Hex(body)
+      : isRecord(pkg)
+        ? await packageHash(pkg).catch(() => null)
+        : null;
+  const descriptor = isRecord(pkg)
+    ? providers.find((entry) => entry?.id === pkg.provider)
+    : undefined;
+  const base = {
+    proofHash,
+    provider: isRecord(pkg) ? (pkg.provider ?? null) : null,
+    claim: isRecord(pkg) ? (pkg.claim ?? null) : null,
+  };
   const malformed = shapeError(pkg, descriptor);
-  if (malformed) return { status: 'failed', ...base, checks: PACKAGE_CHECKS.map(id => check(id, false, malformed)) };
-  const decided = c => { onCheck?.(c); return c; };
+  if (malformed)
+    return {
+      status: 'failed',
+      ...base,
+      checks: PACKAGE_CHECKS.map((id) => check(id, false, malformed)),
+    };
+  const decided = (c) => {
+    onCheck?.(c);
+    return c;
+  };
 
   // receipt-signature: each receipt under the key its kid names, from a trusted DID document or the resolver.
   const documents = new Map();
-  for (const doc of keys?.dids ?? []) if (isRecord(doc) && typeof doc.id === 'string') documents.set(doc.id, doc);
-  const documentFor = async did => {
+  for (const doc of keys?.dids ?? [])
+    if (isRecord(doc) && typeof doc.id === 'string') documents.set(doc.id, doc);
+  const documentFor = async (did) => {
     if (!did) return null;
-    if (!documents.has(did)) documents.set(did, resolveDid ? await resolveDid(did).catch(() => null) : null);
+    if (!documents.has(did))
+      documents.set(did, resolveDid ? await resolveDid(did).catch(() => null) : null);
     return documents.get(did);
   };
   const receipts = [];
   for (const run of pkg.runs) {
     let did = null;
-    try { did = didOf(splitReceipt(run.receipt).header.kid); } catch { /* verifyReceipt says why */ }
+    try {
+      did = didOf(splitReceipt(run.receipt).header.kid);
+    } catch {
+      /* verifyReceipt says why */
+    }
     const doc = await documentFor(did);
-    receipts.push(doc ? await verifyReceipt(run.receipt, doc) : did ? { ok: null, reason: `no DID document for ${did}` } : await verifyReceipt(run.receipt, null));
+    receipts.push(
+      doc
+        ? await verifyReceipt(run.receipt, doc)
+        : did
+          ? { ok: null, reason: `no DID document for ${did}` }
+          : await verifyReceipt(run.receipt, null),
+    );
   }
-  const payloads = pkg.runs.map((run, i) => receipts[i].payload ?? unverifiedReceipt(run.receipt)?.payload ?? null);
-  const badReceipt = receipts.findIndex(r => r.ok !== true);
-  const kids = [...new Set(receipts.map(r => r.kid).filter(Boolean))];
-  const c1 = check('receipt-signature', combine(receipts.map(r => r.ok)),
-    badReceipt < 0 ? `${receipts.length} receipt(s) signed by ${kids.join(', ')}` : `run ${badReceipt + 1}: ${receipts[badReceipt].reason}`);
+  const payloads = pkg.runs.map(
+    (run, i) => receipts[i].payload ?? unverifiedReceipt(run.receipt)?.payload ?? null,
+  );
+  const badReceipt = receipts.findIndex((r) => r.ok !== true);
+  const kids = [...new Set(receipts.map((r) => r.kid).filter(Boolean))];
+  const c1 = check(
+    'receipt-signature',
+    combine(receipts.map((r) => r.ok)),
+    badReceipt < 0
+      ? `${receipts.length} receipt(s) signed by ${kids.join(', ')}`
+      : `run ${badReceipt + 1}: ${receipts[badReceipt].reason}`,
+  );
 
   // Runs grouped by proof (consecutive runs sharing a proofId), so each run knows its position in its proof.
   const groups = [];
   pkg.runs.forEach((run, i) => {
     const proofId = payloads[i]?.proofId ?? `run-${i}`;
     const last = groups.at(-1);
-    if (last && last.proofId === proofId) last.items.push(i); else groups.push({ proofId, items: [i] });
+    if (last && last.proofId === proofId) last.items.push(i);
+    else groups.push({ proofId, items: [i] });
   });
 
   // server-name: the provider descriptor's hosts, by position in the proof.
   let c2;
-  const hostRows = groups.flatMap(g => g.items.map((i, index) => ({ run: i + 1, serverName: payloads[i]?.serverName ?? null, allowed: allowedHosts(descriptor, index) })));
-  if (hostRows.some(row => !row.allowed)) c2 = check('server-name', null, `the ${descriptor.id} descriptor lists no hosts`);
+  const hostRows = groups.flatMap((g) =>
+    g.items.map((i, index) => ({
+      run: i + 1,
+      serverName: payloads[i]?.serverName ?? null,
+      allowed: allowedHosts(descriptor, index),
+    })),
+  );
+  if (hostRows.some((row) => !row.allowed))
+    c2 = check('server-name', null, `the ${descriptor.id} descriptor lists no hosts`);
   else {
-    const bad = hostRows.find(row => !row.allowed.includes(row.serverName));
-    c2 = check('server-name', !bad, bad ? `run ${bad.run} names ${JSON.stringify(bad.serverName)}, not a ${descriptor.id} host`
-      : [...new Set(hostRows.map(row => row.serverName))].join(', '));
+    const bad = hostRows.find((row) => !row.allowed.includes(row.serverName));
+    c2 = check(
+      'server-name',
+      !bad,
+      bad
+        ? `run ${bad.run} names ${JSON.stringify(bad.serverName)}, not a ${descriptor.id} host`
+        : [...new Set(hostRows.map((row) => row.serverName))].join(', '),
+    );
   }
 
   // signed-root: disclosed bytes, commitments and hidden leaf hashes rebuild each signed root.
@@ -167,60 +264,142 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
     try {
       if (!payload) throw new LeafError('the receipt payload is unreadable');
       const r = await resolveLeaves(pkg.runs[i], payload.v);
-      if (r.hashes.length !== payload.leafCount) throw new LeafError(`the receipt signs ${payload.leafCount} leaves, the package has ${r.hashes.length}`);
-      if (r.root !== payload.root) throw new LeafError(`rebuilt root ${r.root} is not the signed ${payload.root}`);
+      if (r.hashes.length !== payload.leafCount)
+        throw new LeafError(
+          `the receipt signs ${payload.leafCount} leaves, the package has ${r.hashes.length}`,
+        );
+      if (r.root !== payload.root)
+        throw new LeafError(`rebuilt root ${r.root} is not the signed ${payload.root}`);
       resolved.push(r);
     } catch (error) {
       if (!(error instanceof LeafError)) throw error;
       badRoot = `run ${i + 1}: ${error.message}`;
     }
   }
-  const count = key => resolved.reduce((n, r) => n + (typeof r[key] === 'number' ? r[key] : r[key].length), 0);
-  const c3 = check('signed-root', !badRoot, badRoot ?? `${pkg.runs.length} run(s): ${count('disclosed')} disclosed, ${count('committed')} committed and ${count('hiddenCount')} hidden leaves`);
+  const count = (key) =>
+    resolved.reduce((n, r) => n + (typeof r[key] === 'number' ? r[key] : r[key].length), 0);
+  const c3 = check(
+    'signed-root',
+    !badRoot,
+    badRoot ??
+      `${pkg.runs.length} run(s): ${count('disclosed')} disclosed, ${count('committed')} committed and ${count('hiddenCount')} hidden leaves`,
+  );
   [c1, c2, c3].forEach(decided);
-  const proofGroups = badRoot ? null : groups.map(g => g.items.map(i => ({ run: pkg.runs[i], payload: payloads[i], resolved: resolved[i] })));
+  const proofGroups = badRoot
+    ? null
+    : groups.map((g) =>
+        g.items.map((i) => ({ run: pkg.runs[i], payload: payloads[i], resolved: resolved[i] })),
+      );
 
   // claim-from-data: settled now when it can be (another claim asked for, roots not rebuilt, no claim, or the disclosed
   // bytes give it); otherwise after zk-proofs and on-chain, from the proofs or a trusted signature.
   let c4;
-  if (claim !== undefined && claim !== pkg.claim) c4 = check('claim-from-data', false, `the package backs ${JSON.stringify(pkg.claim ?? null)}, not ${JSON.stringify(claim)}`);
-  else if (!proofGroups) c4 = check('claim-from-data', null, 'not run: the pieces do not rebuild the signed roots');
-  else if (pkg.claim === undefined) c4 = check('claim-from-data', null, 'the package names no claim', SETTLED_REASONS.NOT_APPLICABLE);
+  if (claim !== undefined && claim !== pkg.claim)
+    c4 = check(
+      'claim-from-data',
+      false,
+      `the package backs ${JSON.stringify(pkg.claim ?? null)}, not ${JSON.stringify(claim)}`,
+    );
+  else if (!proofGroups)
+    c4 = check('claim-from-data', null, 'not run: the pieces do not rebuild the signed roots');
+  else if (pkg.claim === undefined)
+    c4 = check(
+      'claim-from-data',
+      null,
+      'the package names no claim',
+      SETTLED_REASONS.NOT_APPLICABLE,
+    );
   else {
-    const runs = proofGroups.flat().map(({ payload, resolved: r }) => ({ serverName: payload.serverName, sessionId: payload.sessionId,
-      proofId: payload.proofId, disclosed: r.disclosed.map(({ leaf, bytes }) => ({ direction: leaf.direction, start: leaf.start, end: leaf.end, bytes })) }));
-    const rebuilt = runs.some(run => run.disclosed.length) && descriptor.claimFromData ? await descriptor.claimFromData({ claim: pkg.claim, runs }) : null;
-    if (typeof rebuilt === 'string') c4 = check('claim-from-data', rebuilt === pkg.claim, rebuilt === pkg.claim ? `${rebuilt}, from the disclosed data` : `the disclosed data gives ${JSON.stringify(rebuilt)}`);
+    const runs = proofGroups.flat().map(({ payload, resolved: r }) => ({
+      serverName: payload.serverName,
+      sessionId: payload.sessionId,
+      proofId: payload.proofId,
+      disclosed: r.disclosed.map(({ leaf, bytes }) => ({
+        direction: leaf.direction,
+        start: leaf.start,
+        end: leaf.end,
+        bytes,
+      })),
+    }));
+    const rebuilt =
+      runs.some((run) => run.disclosed.length) && descriptor.claimFromData
+        ? await descriptor.claimFromData({ claim: pkg.claim, runs })
+        : null;
+    if (typeof rebuilt === 'string')
+      c4 = check(
+        'claim-from-data',
+        rebuilt === pkg.claim,
+        rebuilt === pkg.claim
+          ? `${rebuilt}, from the disclosed data`
+          : `the disclosed data gives ${JSON.stringify(rebuilt)}`,
+      );
   }
   if (c4) decided(c4);
 
   // on-chain: an attestation naming this package hash, signed by a listed key, in a registry.
-  let c6, anchored = null;
-  const known = new Map((keys?.keys ?? []).map(key => [key.id, key]));
-  const lookups = registries.filter(registry => typeof registry?.findByProofHash === 'function');
-  if (expectedHash !== undefined && expectedHash !== proofHash) c6 = check('on-chain', false, `the published claim names ${String(expectedHash)}, the package hashes to ${proofHash}`);
-  else if (!lookups.length) c6 = check('on-chain', null, 'no registry configured: on-chain anchoring is optional', SETTLED_REASONS.NOT_APPLICABLE);
+  let c6,
+    anchored = null;
+  const known = new Map((keys?.keys ?? []).map((key) => [key.id, key]));
+  const lookups = registries.filter((registry) => typeof registry?.findByProofHash === 'function');
+  if (expectedHash !== undefined && expectedHash !== proofHash)
+    c6 = check(
+      'on-chain',
+      false,
+      `the published claim names ${String(expectedHash)}, the package hashes to ${proofHash}`,
+    );
+  else if (!lookups.length)
+    c6 = check(
+      'on-chain',
+      null,
+      'no registry configured: on-chain anchoring is optional',
+      SETTLED_REASONS.NOT_APPLICABLE,
+    );
   else {
-    const found = (await Promise.all(lookups.map(registry => registry.findByProofHash({ proofHash }).catch(() => [])))).flat();
+    const found = (
+      await Promise.all(
+        lookups.map((registry) => registry.findByProofHash({ proofHash }).catch(() => [])),
+      )
+    ).flat();
     let detail = 'not-found';
     for (const candidate of found) {
       const key = known.get(candidate?.verifierKeyId);
-      if (!key) { detail = 'unknown-key'; continue; }
-      if (candidate.proofHash !== proofHash) { detail = 'proof-hash-mismatch'; continue; }
+      if (!key) {
+        detail = 'unknown-key';
+        continue;
+      }
+      if (candidate.proofHash !== proofHash) {
+        detail = 'proof-hash-mismatch';
+        continue;
+      }
       const verdict = await verifyAttestation(candidate, key.publicKeyPem, { now });
-      if (verdict.ok) { anchored = { attestation: candidate, key }; break; }
+      if (verdict.ok) {
+        anchored = { attestation: candidate, key };
+        break;
+      }
       detail = verdict.reason;
     }
-    c6 = check('on-chain', Boolean(anchored), anchored ? `signed by ${anchored.key.label ?? anchored.key.id}` : detail);
+    c6 = check(
+      'on-chain',
+      Boolean(anchored),
+      anchored ? `signed by ${anchored.key.label ?? anchored.key.id}` : detail,
+    );
   }
   decided(c6);
 
   // zk-proofs.
   let c5;
-  if (!proofGroups) c5 = check('zk-proofs', null, 'not run: the commitments are not the signed ones');
+  if (!proofGroups)
+    c5 = check('zk-proofs', null, 'not run: the commitments are not the signed ones');
   else if (zk.skip) c5 = check('zk-proofs', null, zk.skip);
   else {
-    const r = await checkZk({ descriptor, pins: pkg.pins, groups: proofGroups, loadBb: zk.loadBb, verificationKey: zk.verificationKey, vks: zk.vks ?? pkg.vks });
+    const r = await checkZk({
+      descriptor,
+      pins: pkg.pins,
+      groups: proofGroups,
+      loadBb: zk.loadBb,
+      verificationKey: zk.verificationKey,
+      vks: zk.vks ?? pkg.vks,
+    });
     c5 = check('zk-proofs', r.ok, r.detail, r.reason);
   }
   decided(c5);
@@ -229,34 +408,79 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
   // verify, as unverified public inputs back nothing), else signed by a trusted issuer (an attestation given with the
   // package, or the on-chain one) over this package hash, provider and claim, else attested by the issuer.
   if (!c4) {
-    const bundles = proofGroups.map(group => group.find(({ run }) => run.zk !== null && run.zk !== undefined)?.run.zk).filter(Boolean);
+    const bundles = proofGroups
+      .map((group) => group.find(({ run }) => run.zk !== null && run.zk !== undefined)?.run.zk)
+      .filter(Boolean);
     let derived = null;
-    if (descriptor.claimFromProofs === true && typeof descriptor.claim === 'function' && bundles.length === 1) {
-      try { derived = descriptor.claim(publicBundle(bundles[0]), { claim: pkg.claim })?.claim ?? null; } catch { /* undetermined */ }
+    if (
+      descriptor.claimFromProofs === true &&
+      typeof descriptor.claim === 'function' &&
+      bundles.length === 1
+    ) {
+      try {
+        derived = descriptor.claim(publicBundle(bundles[0]), { claim: pkg.claim })?.claim ?? null;
+      } catch {
+        /* undetermined */
+      }
     }
     const rebuildable = typeof derived === 'string';
     const rebuilt = rebuildable && c5.ok === true ? derived : null;
-    const signed = typeof rebuilt === 'string' ? null : await signedClaim({ attestation, anchored, known, pkg, proofHash, now });
-    if (typeof rebuilt === 'string') c4 = check('claim-from-data', rebuilt === pkg.claim, rebuilt === pkg.claim ? `${rebuilt}, from the proofs' public inputs`
-      : `the proofs' public inputs give ${JSON.stringify(rebuilt)}`);
+    const signed =
+      typeof rebuilt === 'string'
+        ? null
+        : await signedClaim({ attestation, anchored, known, pkg, proofHash, now });
+    if (typeof rebuilt === 'string')
+      c4 = check(
+        'claim-from-data',
+        rebuilt === pkg.claim,
+        rebuilt === pkg.claim
+          ? `${rebuilt}, from the proofs' public inputs`
+          : `the proofs' public inputs give ${JSON.stringify(rebuilt)}`,
+      );
     else if (signed.ok !== null) c4 = check('claim-from-data', signed.ok, signed.detail);
-    else if (rebuildable && c5.ok !== true) c4 = check('claim-from-data', null, c5.ok === false ? 'not run: the zero-knowledge proofs do not verify'
-      : 'not run: the claim is checked against the proofs\' public inputs once the proofs verify');
-    else c4 = check('claim-from-data', null, `attested by the issuer: the package's own claim; ${signed.detail}`, SETTLED_REASONS.ATTESTED);
+    else if (rebuildable && c5.ok !== true)
+      c4 = check(
+        'claim-from-data',
+        null,
+        c5.ok === false
+          ? 'not run: the zero-knowledge proofs do not verify'
+          : "not run: the claim is checked against the proofs' public inputs once the proofs verify",
+      );
+    else
+      c4 = check(
+        'claim-from-data',
+        null,
+        `attested by the issuer: the package's own claim; ${signed.detail}`,
+        SETTLED_REASONS.ATTESTED,
+      );
     decided(c4);
   }
 
   const checks = [c1, c2, c3, c4, c5, c6];
-  const ok = combine(checks.filter(c => !settled(c)).map(c => c.ok));
-  return { status: ok === true ? 'verified' : ok === false ? 'failed' : 'partial', ...base, checks };
+  const ok = combine(checks.filter((c) => !settled(c)).map((c) => c.ok));
+  return {
+    status: ok === true ? 'verified' : ok === false ? 'failed' : 'partial',
+    ...base,
+    checks,
+  };
 }
 
 /** One line per check, as the CLI prints them. */
 export function packageLines(result) {
-  const mark = c => (c.ok === true ? 'ok  ' : c.ok === false ? 'FAIL' : c.reason === SETTLED_REASONS.ATTESTED ? 'att '
-    : c.reason === SETTLED_REASONS.NOT_APPLICABLE ? 'n/a ' : '--  ');
+  const mark = (c) =>
+    c.ok === true
+      ? 'ok  '
+      : c.ok === false
+        ? 'FAIL'
+        : c.reason === SETTLED_REASONS.ATTESTED
+          ? 'att '
+          : c.reason === SETTLED_REASONS.NOT_APPLICABLE
+            ? 'n/a '
+            : '--  ';
   return [
-    ...result.checks.map(c => `${mark(c)} ${c.id}: ${c.label}${c.detail ? ` (${c.detail})` : ''}`),
+    ...result.checks.map(
+      (c) => `${mark(c)} ${c.id}: ${c.label}${c.detail ? ` (${c.detail})` : ''}`,
+    ),
     `${result.status} ${result.proofHash ?? ''}${result.claim ? ` ${result.claim}` : ''}`.trim(),
   ];
 }

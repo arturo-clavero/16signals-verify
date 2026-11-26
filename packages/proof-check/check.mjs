@@ -69,16 +69,25 @@ export const RESTS_ON_SIGNATURE = Object.freeze([
  */
 export function parseDropped(text) {
   let value;
-  try { value = JSON.parse(text); } catch { throw new Error('Not a JSON file.'); }
-  if (value && typeof value.kind === 'string' && Array.isArray(value.proofs)) return { bundle: value };
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error('Not a JSON file.');
+  }
+  if (value && typeof value.kind === 'string' && Array.isArray(value.proofs))
+    return { bundle: value };
   if (isProofPackage(value)) return { package: value };
-  if (isProofPackage(value?.package)) return value.attestation ? { package: value.package, attestation: value.attestation } : { package: value.package };
+  if (isProofPackage(value?.package))
+    return value.attestation
+      ? { package: value.package, attestation: value.attestation }
+      : { package: value.package };
   if (value?.type === 'tlsn-attestation') return { attestation: value };
-  if (value && (value.attestation || value.bundle)) return { attestation: value.attestation, bundle: value.bundle };
+  if (value && (value.attestation || value.bundle))
+    return { attestation: value.attestation, bundle: value.bundle };
   throw new Error('Unrecognised file: expected a proof bundle, an attestation or a proof package.');
 }
 
-const byId = (providers, id) => (providers ?? []).find(descriptor => descriptor?.id === id);
+const byId = (providers, id) => (providers ?? []).find((descriptor) => descriptor?.id === id);
 
 /** Plain-language headline for a claim, from its provider's descriptor. Otherwise the claim as published. */
 export function describeClaim({ provider, claim, window }, providers) {
@@ -91,40 +100,79 @@ export function describeClaim({ provider, claim, window }, providers) {
 const STEPS = [
   async function signature(ctx) {
     const { commitment, attestations = [], keys, now } = ctx.input;
-    const known = new Map((keys?.keys ?? []).map(key => [key.id, key]));
+    const known = new Map((keys?.keys ?? []).map((key) => [key.id, key]));
     let detail = 'no-attestation';
     for (const candidate of attestations) {
       const key = known.get(candidate?.verifierKeyId);
-      if (!key) { detail = 'unknown-key'; continue; }
-      if (candidate.commitment !== commitment) { detail = 'commitment-mismatch'; continue; }
+      if (!key) {
+        detail = 'unknown-key';
+        continue;
+      }
+      if (candidate.commitment !== commitment) {
+        detail = 'commitment-mismatch';
+        continue;
+      }
       const verdict = await verifyAttestation(candidate, key.publicKeyPem, { now });
-      if (verdict.ok) { ctx.attestation = candidate; ctx.key = key; break; }
+      if (verdict.ok) {
+        ctx.attestation = candidate;
+        ctx.key = key;
+        break;
+      }
       detail = verdict.reason;
     }
-    if (!ctx.add(Boolean(ctx.attestation), 'signature', 'Signed by a listed verifier key, unexpired, and the commitment recomputes from its fields', ctx.attestation ? undefined : detail)) {
+    if (
+      !ctx.add(
+        Boolean(ctx.attestation),
+        'signature',
+        'Signed by a listed verifier key, unexpired, and the commitment recomputes from its fields',
+        ctx.attestation ? undefined : detail,
+      )
+    ) {
       ctx.result.status = attestations.length ? 'failed' : 'not-found';
       return STOP;
     }
     const { attestation, key } = ctx;
-    Object.assign(ctx.result, { provider: attestation.provider, claim: attestation.claim, window: attestation.window,
-      verifier: key.label ?? key.id });
+    Object.assign(ctx.result, {
+      provider: attestation.provider,
+      claim: attestation.claim,
+      window: attestation.window,
+      verifier: key.label ?? key.id,
+    });
   },
   async function provider(ctx) {
     ctx.descriptor = byId(ctx.input.providers, ctx.attestation.provider);
     if (ctx.descriptor) return;
-    ctx.add(false, 'provider', 'The provider is one these checks support', ctx.attestation.provider);
+    ctx.add(
+      false,
+      'provider',
+      'The provider is one these checks support',
+      ctx.attestation.provider,
+    );
     ctx.result.status = 'failed';
     return STOP;
   },
   async function bundle(ctx) {
     if (!ctx.input.bundle) {
-      ctx.add(false, 'bundle', 'Public proof bundle not found: proof hash and public inputs not checked');
+      ctx.add(
+        false,
+        'bundle',
+        'Public proof bundle not found: proof hash and public inputs not checked',
+      );
       ctx.result.status = 'signature-only';
       return STOP;
     }
-    try { ctx.bundle = publicBundle(ctx.input.bundle); } catch { ctx.bundle = null; }
-    if (!ctx.add(Boolean(ctx.bundle) && await proofHash(ctx.bundle) === ctx.attestation.proofHash, 'proof-hash',
-      'Published proof bundle hashes to the signed proof hash')) {
+    try {
+      ctx.bundle = publicBundle(ctx.input.bundle);
+    } catch {
+      ctx.bundle = null;
+    }
+    if (
+      !ctx.add(
+        Boolean(ctx.bundle) && (await proofHash(ctx.bundle)) === ctx.attestation.proofHash,
+        'proof-hash',
+        'Published proof bundle hashes to the signed proof hash',
+      )
+    ) {
       ctx.result.status = 'failed';
       return STOP;
     }
@@ -132,18 +180,34 @@ const STEPS = [
   async function verificationKeys(ctx) {
     const { vkHashes } = ctx.attestation;
     if (!vkHashes) return;
-    const used = [...new Set(ctx.bundle.proofs.map(entry => entry.circuitId))].sort();
+    const used = [...new Set(ctx.bundle.proofs.map((entry) => entry.circuitId))].sort();
     const pinned = (await resolvePins(ctx.descriptor).catch(() => undefined))?.circuits;
-    const ok = used.join() === Object.keys(vkHashes).sort().join() &&
-      (!pinned || used.every(id => pinnedKeyHash(pinned[id]) === vkHashes[id]));
-    if (!ctx.add(ok, 'verification-keys', pinned ? 'Verification keys are the ones pinned in this repository'
-      : 'Verification keys cover exactly the circuits used')) ctx.result.status = 'failed';
+    const ok =
+      used.join() === Object.keys(vkHashes).sort().join() &&
+      (!pinned || used.every((id) => pinnedKeyHash(pinned[id]) === vkHashes[id]));
+    if (
+      !ctx.add(
+        ok,
+        'verification-keys',
+        pinned
+          ? 'Verification keys are the ones pinned in this repository'
+          : 'Verification keys cover exactly the circuits used',
+      )
+    )
+      ctx.result.status = 'failed';
   },
   async function claim(ctx) {
     const { attestation } = ctx;
     const derived = ctx.descriptor.claim?.(ctx.bundle, { claim: attestation.claim });
-    if (derived && !ctx.add(derived.claim === attestation.claim && derived.window === attestation.window, 'claim',
-      'Claim matches the proven public inputs')) ctx.result.status = 'failed';
+    if (
+      derived &&
+      !ctx.add(
+        derived.claim === attestation.claim && derived.window === attestation.window,
+        'claim',
+        'Claim matches the proven public inputs',
+      )
+    )
+      ctx.result.status = 'failed';
   },
 ];
 
@@ -163,7 +227,7 @@ export async function evaluate({ now = Date.now(), ...input }) {
       return ok;
     },
   };
-  for (const step of STEPS) if (await step(ctx) === STOP) break;
+  for (const step of STEPS) if ((await step(ctx)) === STOP) break;
   return ctx.result;
 }
 
@@ -174,21 +238,50 @@ export async function evaluate({ now = Date.now(), ...input }) {
  *   providers: ProviderDescriptor[], registries?: Registry[], now?: number }} input
  * @returns {Promise<Result & { commitment: string }>}
  */
-export async function verifyCommitment({ commitment, dropped = {}, keys, providers, registries = [], now }) {
+export async function verifyCommitment({
+  commitment,
+  dropped = {},
+  keys,
+  providers,
+  registries = [],
+  now,
+}) {
   if (!dropped.attestation && !registries.length) throw new Error('Drop an attestation file.');
-  if (!dropped.attestation && !HEX64.test(commitment ?? '')) throw new Error('Enter a 64-character commitment or drop a file.');
-  const attestations = dropped.attestation ? [dropped.attestation]
-    : (await Promise.all(registries.map(registry => registry.findAttestations({ commitment })))).flat();
-  const target = commitment ?? (dropped.attestation ? await bundleCommitment(Object.fromEntries(
-    ['provider', 'claim', 'window', 'proofHash', 'vkHashes', 'coreDigest', 'pluginSha256']
-      .filter(name => dropped.attestation[name] !== undefined).map(name => [name, dropped.attestation[name]]))) : undefined);
+  if (!dropped.attestation && !HEX64.test(commitment ?? ''))
+    throw new Error('Enter a 64-character commitment or drop a file.');
+  const attestations = dropped.attestation
+    ? [dropped.attestation]
+    : (
+        await Promise.all(registries.map((registry) => registry.findAttestations({ commitment })))
+      ).flat();
+  const target =
+    commitment ??
+    (dropped.attestation
+      ? await bundleCommitment(
+          Object.fromEntries(
+            ['provider', 'claim', 'window', 'proofHash', 'vkHashes', 'coreDigest', 'pluginSha256']
+              .filter((name) => dropped.attestation[name] !== undefined)
+              .map((name) => [name, dropped.attestation[name]]),
+          ),
+        )
+      : undefined);
   let bundle = dropped.bundle ?? null;
-  const hashes = [...new Set(attestations.map(item => item?.proofHash).filter(value => HEX64.test(value ?? '')))];
+  const hashes = [
+    ...new Set(
+      attestations.map((item) => item?.proofHash).filter((value) => HEX64.test(value ?? '')),
+    ),
+  ];
   search: for (const hash of bundle ? [] : hashes) {
     for (const registry of registries) {
       const found = await registry.findBundle({ commitment: target, proofHash: hash });
-      if (found) { bundle = JSON.parse(found.json); break search; }
+      if (found) {
+        bundle = JSON.parse(found.json);
+        break search;
+      }
     }
   }
-  return { commitment: target, ...await evaluate({ commitment: target, attestations, keys, bundle, providers, now }) };
+  return {
+    commitment: target,
+    ...(await evaluate({ commitment: target, attestations, keys, bundle, providers, now })),
+  };
 }

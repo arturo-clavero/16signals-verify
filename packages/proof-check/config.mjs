@@ -11,13 +11,20 @@
 
 /** Resolves a config's paths against `base` (the config's URL): imports providers and reads the keys. */
 export async function resolveConfig(config, base, { readJson }) {
-  const url = path => new URL(path, base);
+  const url = (path) => new URL(path, base);
   return {
-    providers: await Promise.all((config?.providers ?? []).map(async entry =>
-      typeof entry === 'string' ? (await import(url(entry).href)).default : entry)),
-    keys: typeof config?.keys === 'string' ? await readJson(url(config.keys)) : config?.keys ?? { keys: [] },
-    registries: (config?.registries ?? []).map(entry =>
-      typeof entry?.module === 'string' ? { ...entry, module: url(entry.module).href } : entry),
+    providers: await Promise.all(
+      (config?.providers ?? []).map(async (entry) =>
+        typeof entry === 'string' ? (await import(url(entry).href)).default : entry,
+      ),
+    ),
+    keys:
+      typeof config?.keys === 'string'
+        ? await readJson(url(config.keys))
+        : (config?.keys ?? { keys: [] }),
+    registries: (config?.registries ?? []).map((entry) =>
+      typeof entry?.module === 'string' ? { ...entry, module: url(entry.module).href } : entry,
+    ),
   };
 }
 

@@ -16,25 +16,41 @@ function closure(entry, seen = new Set()) {
   seen.add(path);
   if (!path.endsWith('.mjs')) return seen;
   const source = readFileSync(new URL(path, root), 'utf8');
-  for (const [, spec] of source.matchAll(/(?:^|\n)\s*(?:import|export)\b[^'"]*?['"](\.[^'"]+)['"]/g)) {
+  for (const [, spec] of source.matchAll(
+    /(?:^|\n)\s*(?:import|export)\b[^'"]*?['"](\.[^'"]+)['"]/g,
+  )) {
     closure(new URL(spec, new URL(path, root)).href.slice(root.href.length), seen);
   }
   return seen;
 }
 
 test('files lists exactly the import closure of the exports, the config and the license files', () => {
-  const expected = new Set([...Object.values(manifest.exports).filter(target => target.endsWith('.mjs'))
-    .flatMap(target => [...closure(target)]), 'verify.config.json', 'LICENSE-MIT', 'LICENSE-APACHE']);
+  const expected = new Set([
+    ...Object.values(manifest.exports)
+      .filter((target) => target.endsWith('.mjs'))
+      .flatMap((target) => [...closure(target)]),
+    'verify.config.json',
+    'LICENSE-MIT',
+    'LICENSE-APACHE',
+  ]);
   assert.deepEqual([...manifest.files].sort(), [...expected].sort());
 });
 
 test('the exports are the three descriptors', () => {
-  assert.deepEqual(providers.map(descriptor => descriptor.id), ['gcp', 'aws', 'cloudflare']);
+  assert.deepEqual(
+    providers.map((descriptor) => descriptor.id),
+    ['gcp', 'aws', 'cloudflare'],
+  );
   assert.deepEqual([gcp.id, aws.id, cloudflare.id], ['gcp', 'aws', 'cloudflare']);
 });
 
 test('the packaged config loads the three providers with no trusted keys', async () => {
-  const config = await loadConfig(new URL('verify.config.json', root), { readJson: async url => JSON.parse(await readFile(url, 'utf8')) });
-  assert.deepEqual(config.providers.map(descriptor => descriptor.id), ['gcp', 'aws', 'cloudflare']);
+  const config = await loadConfig(new URL('verify.config.json', root), {
+    readJson: async (url) => JSON.parse(await readFile(url, 'utf8')),
+  });
+  assert.deepEqual(
+    config.providers.map((descriptor) => descriptor.id),
+    ['gcp', 'aws', 'cloudflare'],
+  );
   assert.deepEqual(config.keys, { keys: [] });
 });

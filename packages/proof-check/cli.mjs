@@ -24,18 +24,32 @@ const USAGE = `usage: proof-check <attestation.json> [--bundle bundle.json] [--k
 const REPO_CONFIG = new URL('../../verify/verify.config.json', import.meta.url);
 /** The repository's config when run from a checkout, else the providers package's (a dependency when installed). */
 function defaultConfig() {
-  if (!fileURLToPath(import.meta.url).split(/[\\/]/).includes('node_modules') && existsSync(REPO_CONFIG)) return REPO_CONFIG;
-  try { return new URL(import.meta.resolve('@16signals-verify/providers/verify.config.json')); } catch {
+  if (
+    !fileURLToPath(import.meta.url)
+      .split(/[\\/]/)
+      .includes('node_modules') &&
+    existsSync(REPO_CONFIG)
+  )
+    return REPO_CONFIG;
+  try {
+    return new URL(import.meta.resolve('@16signals-verify/providers/verify.config.json'));
+  } catch {
     throw new Error('no config: install @16signals-verify/providers or pass --config');
   }
 }
-const readJson = async url => JSON.parse(await readFile(url, 'utf8'));
-const exit = (code, message) => { if (message) (code === 2 ? console.error : console.log)(message); process.exit(code); };
+const readJson = async (url) => JSON.parse(await readFile(url, 'utf8'));
+const exit = (code, message) => {
+  if (message) (code === 2 ? console.error : console.log)(message);
+  process.exit(code);
+};
 
-const positional = [], options = {};
+const positional = [],
+  options = {};
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
-  const match = /^--(bundle|keys|config|now|proof|did|claim|attestation|uid|network)$/.exec(args[i]);
+  const match = /^--(bundle|keys|config|now|proof|did|claim|attestation|uid|network)$/.exec(
+    args[i],
+  );
   if (match && args[i + 1] !== undefined) options[match[1]] = args[++i];
   else if (args[i].startsWith('-')) exit(2, USAGE);
   else positional.push(args[i]);
@@ -44,7 +58,9 @@ if (positional.length !== (options.proof || options.uid ? 0 : 1)) exit(2, USAGE)
 
 let input, config;
 try {
-  config = await loadConfig(options.config ? pathToFileURL(options.config) : defaultConfig(), { readJson });
+  config = await loadConfig(options.config ? pathToFileURL(options.config) : defaultConfig(), {
+    readJson,
+  });
   const now = options.now === undefined ? undefined : Date.parse(options.now);
   if (Number.isNaN(now)) throw new Error('--now: not a date');
   const keys = options.keys ? await readJson(options.keys) : config.keys;
@@ -52,11 +68,22 @@ try {
     const dropped = parseDropped(await readFile(options.proof, 'utf8'));
     if (!dropped.package) throw new Error('expected a proof package');
     const dids = [...(keys?.dids ?? []), ...(options.did ? [await readJson(options.did)] : [])];
-    const attestation = options.attestation ? await readJson(options.attestation) : dropped.attestation;
-    input = { pkg: dropped.package, providers: config.providers, keys: { ...keys, dids }, claim: options.claim, attestation, now };
+    const attestation = options.attestation
+      ? await readJson(options.attestation)
+      : dropped.attestation;
+    input = {
+      pkg: dropped.package,
+      providers: config.providers,
+      keys: { ...keys, dids },
+      claim: options.claim,
+      attestation,
+      now,
+    };
   } else if (options.uid) {
     // The attestation comes from the BAS record; a bundle file can add what is off chain.
-    const dropped = options.bundle ? { bundle: JSON.parse(await readFile(options.bundle, 'utf8')) } : {};
+    const dropped = options.bundle
+      ? { bundle: JSON.parse(await readFile(options.bundle, 'utf8')) }
+      : {};
     input = { dropped, providers: config.providers, keys, now };
   } else {
     const dropped = parseDropped(await readFile(positional[0], 'utf8'));
@@ -72,10 +99,14 @@ try {
 async function bnbRegistries() {
   if (!options.uid) return [];
   // Without a bnb registry in the config, the @16signals-verify/bnb-anchor package when it is installed next to this one.
-  const entry = config.registries.find(item => item?.type === 'bnb') ?? {};
-  const anchor = entry.module ? import(entry.module) : import('@16signals-verify/bnb-anchor').catch(() => {
-    throw new Error('--uid needs a bnb registry in the config or @16signals-verify/bnb-anchor installed');
-  });
+  const entry = config.registries.find((item) => item?.type === 'bnb') ?? {};
+  const anchor = entry.module
+    ? import(entry.module)
+    : import('@16signals-verify/bnb-anchor').catch(() => {
+        throw new Error(
+          '--uid needs a bnb registry in the config or @16signals-verify/bnb-anchor installed',
+        );
+      });
   const { NETWORKS, bnbRegistry } = await anchor;
   const { createPublicClient, http } = await import('viem');
   const network = options.network ?? entry.network ?? 'bsc-testnet';
@@ -106,8 +137,13 @@ if (options.proof) {
       Object.assign(input, { registries, commitment: anchor.attestation.commitment });
     }
     result = await verifyCommitment(input);
-  } catch (error) { exit(2, `proof-check: ${error.message}`); }
-  for (const check of result.checks) console.log(`${check.ok ? 'ok  ' : 'FAIL'} ${check.label}${check.detail ? ` (${check.detail})` : ''}`);
+  } catch (error) {
+    exit(2, `proof-check: ${error.message}`);
+  }
+  for (const check of result.checks)
+    console.log(
+      `${check.ok ? 'ok  ' : 'FAIL'} ${check.label}${check.detail ? ` (${check.detail})` : ''}`,
+    );
   console.log(`${result.status} ${result.commitment}${result.claim ? ` ${result.claim}` : ''}`);
   process.exitCode = result.status === 'verified' ? 0 : 1;
 }
