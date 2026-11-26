@@ -1,0 +1,19 @@
+{
+  "name": "@tlsn-fork/bnb-anchor",
+  "version": "0.1.0",
+  "description": "Anchor signed verifier attestations on BNB Smart Chain through the BNB Attestation Service",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "exports": {
+    ".": "./anchor.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1"
+  },
+  "dependencies": {
+    "viem": "2.57.6"
+  }
+}
