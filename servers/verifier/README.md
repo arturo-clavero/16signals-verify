@@ -274,12 +274,27 @@ leafHash = SHA-256(0x00 ‖ dir ‖ u64be(start) ‖ u64be(end − start) ‖ sa
 nodeHash = SHA-256(0x01 ‖ left ‖ right)
 ```
 
-over the raw transcript bytes the verifier holds (a `HASH` range was never revealed, so its bytes are zero there,
-as in `transcript`). Levels pair (0,1), (2,3), …; an odd last node is promoted unchanged; one leaf is its own root.
-Test vectors: [`src/tests/receipt-merkle-vectors.json`](src/tests/receipt-merkle-vectors.json).
+over the raw transcript bytes the verifier holds. Levels pair (0,1), (2,3), …; an odd last node is promoted
+unchanged; one leaf is its own root. Test vectors:
+[`src/tests/receipt-merkle-vectors.json`](src/tests/receipt-merkle-vectors.json).
 
-No receipt (the payload is otherwise unchanged; the reason is logged by name) when a proof has no range or the
-CSPRNG fails.
+**v2 (private ranges).** A `HASH` range was never revealed, so it gets a commit leaf over the commitment digest
+the verifier checked for exactly that range, direction and algorithm (the same value as that range's `results`
+entry), binding the commitment a zero-knowledge proof later opens to the TLS session:
+
+```text
+commitLeafHash = SHA-256(0x02 ‖ dir ‖ u64be(start) ‖ u64be(end − start) ‖ salt ‖ digest)    digest: raw bytes
+```
+
+Same leaf order and tree rules. A proof with at least one commit leaf signs `"v":2` (payload otherwise identical)
+and every leaf gains `kind` (`"reveal"` | `"commit"`); a commit leaf also gains `alg` (`sha256`, `blake3`,
+`keccak256`) and `digest` (lowercase hex). A proof without a `HASH` range keeps v1 byte for byte, so treat a leaf
+without `kind` as `reveal`. Test vector for other implementations:
+[`src/tests/receipt-v2-vectors.json`](src/tests/receipt-v2-vectors.json) (transcript, salts, digests, preimages,
+levels, root and the exact JWS under the fake test seed `0x07` × 32).
+
+No receipt (the payload is otherwise unchanged; the reason is logged by name) when a proof has no range, a `HASH`
+range lacks its exact verified commitment, or the CSPRNG fails.
 
 ### Verifying a receipt
 
@@ -287,8 +302,8 @@ CSPRNG fails.
    `verificationMethod` whose `id` is the kid and which is listed in `assertionMethod`.
 2. Verify the JWS with that key, EdDSA only (e.g. `jose`: `compactVerify(jws, key, { algorithms: ['EdDSA'] })`),
    and check `typ` is `tlsn-receipt+jws`.
-3. Recompute every leaf hash from `leaves` and the bytes you were given (the revealed bytes of each range),
-   build the tree, and compare with `root` and `leafCount`. To check a single range,
+3. Recompute every leaf hash from `leaves` and the bytes you were given (the revealed bytes for a reveal leaf,
+   `digest` for a commit leaf), build the tree, and compare with `root` and `leafCount`. To check a single range,
    an inclusion proof (its siblings, bottom up) against `root` is enough.
 4. Check `serverName`, `sessionId` / `proofId` and `verifiedAt` against what you expect.
 

@@ -19,6 +19,19 @@
 //! nodeHash = SHA-256(0x01 || left || right)
 //! ```
 //!
+//! Receipt v2: a HASH-action (private) range was never revealed, so its bytes
+//! are zero here. Its leaf commits to the verified commitment digest for that
+//! exact range instead:
+//!
+//! ```text
+//! commitLeafHash = SHA-256(0x02 || dir || u64be(start) || u64be(end - start) || salt || digest)
+//! ```
+//!
+//! When a proof has at least one such leaf the payload is `"v":2` and every
+//! published leaf carries `kind` (`"reveal"` | `"commit"`); a commit leaf also
+//! carries `alg` (`"sha256"` | `"blake3"` | `"keccak256"`) and `digest`
+//! (lowercase hex). Without one, payload and leaves are v1, byte for byte.
+//!
 //! Levels pair (0,1), (2,3), ...; an odd last node is promoted unchanged; one
 //! leaf is its own root; zero leaves give no root and no receipt.
 //!
@@ -35,7 +48,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::RangeWithHandler;
+use crate::{HandlerAction, HashAlgorithm, RangeWithHandler};
 
 /// Private OKP Ed25519 JWK JSON (`kty OKP, crv Ed25519, x, d`). Unset or
 /// empty (and no key file): no receipts.
@@ -50,8 +63,10 @@ pub(crate) const JWS_TYP: &str = "tlsn-receipt+jws";
 /// TLSNotary core version the verifier is built against (the `tlsn` version
 /// pin in Cargo.toml; a test keeps the two in step).
 pub(crate) const TLSN_VERSION: &str = "0.1.0-alpha.15";
-/// Receipt payload / construction version.
+/// Receipt payload version without commit leaves.
 pub(crate) const RECEIPT_VERSION: u8 = 1;
+/// Receipt payload version when at least one leaf is a commit leaf.
+pub(crate) const RECEIPT_VERSION_COMMIT: u8 = 2;
 const MAX_KEY_LEN: usize = 1024;
 const MAX_KID_LEN: usize = 256;
 
@@ -60,6 +75,7 @@ pub(crate) type Salt = [u8; 32];
 
 const LEAF_TAG: u8 = 0x00;
 const NODE_TAG: u8 = 0x01;
+const COMMIT_LEAF_TAG: u8 = 0x02;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,22 +91,63 @@ impl LeafDirection {
             Self::Recv => 0x01,
         }
     }
+
+    pub(crate) fn transcript(self) -> tlsn::transcript::Direction {
+        match self {
+            Self::Sent => tlsn::transcript::Direction::Sent,
+            Self::Recv => tlsn::transcript::Direction::Received,
+        }
+    }
+}
+
+/// `alg` of a commit leaf, lowercase.
+pub(crate) fn alg_name(algorithm: HashAlgorithm) -> &'static str {
+    match algorithm {
+        HashAlgorithm::Sha256 => "sha256",
+        HashAlgorithm::Blake3 => "blake3",
+        HashAlgorithm::Keccak256 => "keccak256",
+    }
+}
+
+fn preimage(tag: u8, direction: LeafDirection, start: usize, len: usize, salt: &Salt, tail: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(2 + 16 + 32 + tail.len());
+    out.push(tag);
+    out.push(direction.tag());
+    out.extend_from_slice(&(start as u64).to_be_bytes());
+    out.extend_from_slice(&(len as u64).to_be_bytes());
+    out.extend_from_slice(salt);
+    out.extend_from_slice(tail);
+    out
 }
 
 /// `0x00 || dir || u64be(start) || u64be(len) || salt || bytes`.
 pub(crate) fn leaf_preimage(direction: LeafDirection, start: usize, bytes: &[u8], salt: &Salt) -> Vec<u8> {
-    let mut out = Vec::with_capacity(2 + 16 + 32 + bytes.len());
-    out.push(LEAF_TAG);
-    out.push(direction.tag());
-    out.extend_from_slice(&(start as u64).to_be_bytes());
-    out.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
-    out.extend_from_slice(salt);
-    out.extend_from_slice(bytes);
-    out
+    preimage(LEAF_TAG, direction, start, bytes.len(), salt, bytes)
 }
 
 pub(crate) fn leaf_hash(direction: LeafDirection, start: usize, bytes: &[u8], salt: &Salt) -> Hash {
     Sha256::digest(leaf_preimage(direction, start, bytes, salt)).into()
+}
+
+/// `0x02 || dir || u64be(start) || u64be(len) || salt || digest`.
+pub(crate) fn commit_leaf_preimage(
+    direction: LeafDirection,
+    start: usize,
+    len: usize,
+    salt: &Salt,
+    digest: &[u8],
+) -> Vec<u8> {
+    preimage(COMMIT_LEAF_TAG, direction, start, len, salt, digest)
+}
+
+pub(crate) fn commit_leaf_hash(
+    direction: LeafDirection,
+    start: usize,
+    len: usize,
+    salt: &Salt,
+    digest: &[u8],
+) -> Hash {
+    Sha256::digest(commit_leaf_preimage(direction, start, len, salt, digest)).into()
 }
 
 pub(crate) fn node_hash(left: &Hash, right: &Hash) -> Hash {
@@ -155,7 +212,8 @@ pub(crate) fn iso8601_utc(t: SystemTime) -> String {
 }
 
 /// One leaf as published next to the receipt: the range and the salt, never
-/// the bytes.
+/// the bytes. v2 adds `kind` to every leaf, and `alg` + `digest` to a commit
+/// leaf; a v1 receipt's leaves have none of the three.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct ReceiptLeaf {
     pub(crate) direction: LeafDirection,
@@ -163,6 +221,15 @@ pub(crate) struct ReceiptLeaf {
     pub(crate) end: usize,
     /// 64 lowercase hex.
     pub(crate) salt: String,
+    /// `"reveal"` or `"commit"`; v2 only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) kind: Option<&'static str>,
+    /// Commit leaves only: the commitment's hash algorithm.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) alg: Option<&'static str>,
+    /// Commit leaves only: the verified commitment digest, lowercase hex.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) digest: Option<String>,
 }
 
 /// The additive payload fields. Flattened into the webhook body, so `receipt`
@@ -205,6 +272,8 @@ pub(crate) enum NoReceipt {
     NoRanges,
     /// A range lies outside the transcript (the verifier validates them first).
     RangeOutOfBounds,
+    /// A HASH range has no matching verified commitment (the verifier checks it first).
+    NoCommitment,
     /// The OS CSPRNG failed.
     Rng,
     /// Payload serialisation failed.
@@ -216,6 +285,7 @@ impl NoReceipt {
         match self {
             Self::NoRanges => "no disclosed ranges",
             Self::RangeOutOfBounds => "a disclosed range is outside the transcript",
+            Self::NoCommitment => "a hash range has no verified commitment",
             Self::Rng => "the OS random number generator failed",
             Self::Encoding => "receipt serialisation failed",
         }
@@ -223,13 +293,16 @@ impl NoReceipt {
 }
 
 /// Leaves (range + salt) in leaf order, with their hashes, over the raw
-/// transcript bytes. `salt(i)` gives the salt of leaf `i`.
+/// transcript bytes. `salt(i)` gives the salt of leaf `i`; `digest(dir, start,
+/// end, alg)` the verified commitment digest of a HASH range. Without a HASH
+/// range the leaves have no `kind` (v1); with one, every leaf has it (v2).
 pub(crate) fn build_leaves(
     sent: &[RangeWithHandler],
     recv: &[RangeWithHandler],
     sent_bytes: &[u8],
     recv_bytes: &[u8],
     mut salt: impl FnMut(usize) -> Result<Salt, NoReceipt>,
+    digest: impl Fn(LeafDirection, usize, usize, HashAlgorithm) -> Option<Vec<u8>>,
 ) -> Result<(Vec<ReceiptLeaf>, Vec<Hash>), NoReceipt> {
     let ranges = sent
         .iter()
@@ -242,15 +315,44 @@ pub(crate) fn build_leaves(
             .get(range.start..range.end)
             .ok_or(NoReceipt::RangeOutOfBounds)?;
         let s = salt(i)?;
-        hashes.push(leaf_hash(direction, range.start, slice, &s));
-        leaves.push(ReceiptLeaf {
+        let mut leaf = ReceiptLeaf {
             direction,
             start: range.start,
             end: range.end,
             salt: hex(&s),
-        });
+            kind: Some("reveal"),
+            alg: None,
+            digest: None,
+        };
+        match range.handler.action {
+            HandlerAction::Reveal => hashes.push(leaf_hash(direction, range.start, slice, &s)),
+            HandlerAction::Hash { algorithm } => {
+                let d = digest(direction, range.start, range.end, algorithm)
+                    .filter(|d| !d.is_empty())
+                    .ok_or(NoReceipt::NoCommitment)?;
+                hashes.push(commit_leaf_hash(direction, range.start, slice.len(), &s, &d));
+                leaf.kind = Some("commit");
+                leaf.alg = Some(alg_name(algorithm));
+                leaf.digest = Some(hex(&d));
+            }
+        }
+        leaves.push(leaf);
+    }
+    if !leaves.iter().any(|l| l.kind == Some("commit")) {
+        for leaf in &mut leaves {
+            leaf.kind = None;
+        }
     }
     Ok((leaves, hashes))
+}
+
+/// The payload version for a set of leaves: 2 with any commit leaf, else 1.
+pub(crate) fn receipt_version(leaves: &[ReceiptLeaf]) -> u8 {
+    if leaves.iter().any(|l| l.kind == Some("commit")) {
+        RECEIPT_VERSION_COMMIT
+    } else {
+        RECEIPT_VERSION
+    }
 }
 
 /// 32 fresh bytes from the OS CSPRNG.
@@ -269,6 +371,8 @@ pub(crate) struct SessionFacts<'a> {
     pub(crate) recv: &'a [RangeWithHandler],
     pub(crate) sent_bytes: &'a [u8],
     pub(crate) recv_bytes: &'a [u8],
+    /// The verified transcript commitments (HASH ranges).
+    pub(crate) commitments: &'a [tlsn::transcript::TranscriptCommitment],
 }
 
 /// The attestor key and kid. No `Debug` derive: it holds the private key.
@@ -458,10 +562,19 @@ impl Attestor {
             facts.sent_bytes,
             facts.recv_bytes,
             salt,
+            |direction, start, end, algorithm| {
+                crate::find_hash_digest_bytes(
+                    facts.commitments,
+                    direction.transcript(),
+                    start,
+                    end,
+                    algorithm,
+                )
+            },
         )?;
         let root = merkle_root(&hashes).ok_or(NoReceipt::NoRanges)?;
         let receipt = self.sign(&ReceiptPayload {
-            v: RECEIPT_VERSION,
+            v: receipt_version(&leaves),
             server_name: facts.server_name,
             session_id: facts.session_id,
             proof_id: facts

@@ -186,6 +186,7 @@ fn attestor_vectors_leaves_levels_and_roots() {
             &input.sent_bytes,
             &input.recv_bytes,
             |_| Ok(salts.next().unwrap()),
+            |_, _, _, _| None,
         )
         .unwrap();
 
@@ -326,6 +327,7 @@ fn attestor_receipt_is_a_compact_eddsa_jws_over_the_contract_payload() {
                 recv: &input.recv,
                 sent_bytes: &input.sent_bytes,
                 recv_bytes: &input.recv_bytes,
+                commitments: &[],
             },
             "2026-10-07T12:00:00.000Z".to_string(),
             |_| Ok(salts.next().unwrap()),
@@ -394,6 +396,7 @@ fn attestor_salts_are_fresh_csprng_bytes() {
         recv: &input.recv,
         sent_bytes: &input.sent_bytes,
         recv_bytes: &input.recv_bytes,
+        commitments: &[],
     };
     let a = attestor.attest(&facts).unwrap();
     let b = attestor.attest(&facts).unwrap();
@@ -427,6 +430,7 @@ fn attestor_no_receipt_without_ranges_or_in_bounds_bytes() {
             recv,
             sent_bytes: &input.sent_bytes,
             recv_bytes: &input.recv_bytes,
+            commitments: &[],
         }
     }
     let at = |f: &SessionFacts<'_>| attestor.attest(f).map(|_| ()).unwrap_err();
@@ -484,6 +488,9 @@ fn attestor_payload_fields_are_additive_and_paired() {
             start: 0,
             end: 17,
             salt: "ab".repeat(32),
+            kind: None,
+            alg: None,
+            digest: None,
         }],
     };
     let with = payload_value(Some(attestation));

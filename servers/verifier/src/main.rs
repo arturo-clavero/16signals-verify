@@ -1629,8 +1629,8 @@ async fn run_verifier_task(
                 &reveal_config,
             );
 
-            // Sign a receipt over the proof's ranges (raw bytes), bound to this
-            // result's id. A
+            // Sign a receipt over the proof's ranges (raw bytes; private ranges
+            // by their verified commitment), bound to this result's id. A
             // proof without one is still delivered; only the reason is logged.
             let attestation = state.settings.attestor.as_ref().and_then(|signer| {
                 signer
@@ -1642,6 +1642,7 @@ async fn run_verifier_task(
                         recv: &reveal_config.recv,
                         sent_bytes: &sent_bytes,
                         recv_bytes: &recv_bytes,
+                        commitments: &transcript_commitments,
                     })
                     .map_err(|reason| {
                         warn!("[{}] No attestor receipt: {}", result_id, reason.as_str())
@@ -1832,7 +1833,7 @@ fn process_ranges(
         .collect()
 }
 
-/// Finds the hash digest for an exact range, direction, and algorithm.
+/// Finds the hash digest for an exact range, direction, and algorithm (hex).
 fn find_hash_digest(
     commitments: &[tlsn::transcript::TranscriptCommitment],
     direction: tlsn::transcript::Direction,
@@ -1840,6 +1841,19 @@ fn find_hash_digest(
     end: usize,
     algorithm: HashAlgorithm,
 ) -> Option<String> {
+    find_hash_digest_bytes(commitments, direction, start, end, algorithm)
+        .map(|bytes| attestor::hex(&bytes))
+}
+
+/// The raw digest bytes of the commitment for an exact range, direction, and
+/// algorithm (also the receipt's commit leaves).
+pub(crate) fn find_hash_digest_bytes(
+    commitments: &[tlsn::transcript::TranscriptCommitment],
+    direction: tlsn::transcript::Direction,
+    start: usize,
+    end: usize,
+    algorithm: HashAlgorithm,
+) -> Option<Vec<u8>> {
     use tlsn::hash::HashAlgId;
     use tlsn::transcript::TranscriptCommitment;
 
@@ -1858,13 +1872,7 @@ fn find_hash_digest(
                 && hash.idx == idx
                 && hash.hash.alg == algorithm
             {
-                let bytes = hash.hash.value.as_bytes();
-                let mut hex_str = String::with_capacity(bytes.len() * 2);
-                for b in bytes {
-                    use std::fmt::Write;
-                    let _ = write!(hex_str, "{:02x}", b);
-                }
-                return Some(hex_str);
+                return Some(hash.hash.value.as_bytes().to_vec());
             }
         }
     }
