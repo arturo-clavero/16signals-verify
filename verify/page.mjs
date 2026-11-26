@@ -1,6 +1,6 @@
 // The verify page as a drop-in: mountVerify(el, config) renders the lookup form, file drop and result into el.
 // All checks live in packages/proof-check; providers, keys and registries come from the config (verify.config.json).
-import { describeClaim, parseDropped, resolveConfig, verifyCommitment } from '../packages/proof-check/index.mjs';
+import { checkPackage, describeClaim, didWebUrl, parseDropped, resolveConfig, verifyCommitment } from '../packages/proof-check/index.mjs';
 
 const readJson = async url => {
   const response = await fetch(url);
@@ -35,6 +35,32 @@ function render(box, result, providers) {
   box.hidden = false;
 }
 
+const PACKAGE_STATUS = {
+  'verified': ['✓ Proof package re-checked', 'ok'],
+  'partial': ['✓ No check failed (some could not run here)', 'warn'],
+  'failed': ['✗ Proof package does not check', 'bad'],
+};
+const MARK = check => (check.ok === true ? '✓' : check.ok === false ? '✗' : check.reason === 'attested' ? 'attested:'
+  : check.reason === 'not-applicable' ? 'n/a:' : '–');
+
+function renderPackage(box, result, providers) {
+  box.replaceChildren();
+  const [label, className] = PACKAGE_STATUS[result.status] ?? PACKAGE_STATUS.failed;
+  box.append(text('div', label, `status ${className}`));
+  if (result.claim && result.status !== 'failed') box.append(text('p', describeClaim(result, providers), 'claim'));
+  const checks = document.createElement('ul');
+  for (const check of result.checks) checks.append(text('li', `${MARK(check)} ${check.label}${check.detail ? ` (${check.detail})` : ''}`));
+  const details = document.createElement('details');
+  details.open = true;
+  details.append(text('summary', 'Checks'), checks);
+  if (result.proofHash) { const p = text('p', 'Package hash: '); p.append(text('code', result.proofHash)); details.append(p); }
+  box.append(details);
+  box.hidden = false;
+}
+
+// The issuer's DID document over did:web (the verifier serves it with CORS), unless keys.json lists it.
+const resolveDid = async did => { const url = didWebUrl(did); return url ? readJson(url) : null; };
+
 // An attestation anchored on BNB Chain (BAS), read from a public RPC. A file dropped afterwards can add its bundle.
 async function bnb(entry, uid) {
   const [{ createPublicClient, http }, { NETWORKS, bnbRegistry }] = await Promise.all([import('viem'), import(entry.module)]);
@@ -62,13 +88,20 @@ export async function mountVerify(el, config = './verify.config.json') {
   result.setAttribute('aria-live', 'polite');
   const show = (value, className) => { result.hidden = false; result.replaceChildren(text('div', value, `status ${className ?? ''}`.trim())); };
   const file = Object.assign(document.createElement('input'), { type: 'file', accept: 'application/json,.json' });
-  const drop = text('label', `${anchorEntry ? 'Or drop' : 'Drop'} an attestation file (with its public proof bundle) here, or `, 'drop');
+  const drop = text('label', `${anchorEntry ? 'Or drop' : 'Drop'} an attestation file (with its public proof bundle) or a proof package here, or `, 'drop');
   drop.append(file);
 
   let anchored = null;
   async function run(dropped = {}) {
     show('Checking…');
     try {
+      if (dropped.package) {
+        // The ZK step loads @aztec/bb.js (import map) on first use; the other checks need nothing extra.
+        show('Checking… (zero-knowledge proofs can take a few seconds)');
+        renderPackage(result, await checkPackage(dropped.package, { providers, keys, resolveDid,
+          registries: anchored?.registries ?? [] }), providers);
+        return;
+      }
       const lookup = anchored && !dropped.attestation ? anchored : {};
       render(result, await verifyCommitment({ dropped, keys, providers, ...lookup }), providers);
     } catch (error) { show(`✗ ${error.message}`, 'bad'); }
