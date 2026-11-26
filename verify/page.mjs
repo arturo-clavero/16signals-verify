@@ -88,7 +88,7 @@ export async function mountVerify(el, config = './verify.config.json') {
   result.setAttribute('aria-live', 'polite');
   const show = (value, className) => { result.hidden = false; result.replaceChildren(text('div', value, `status ${className ?? ''}`.trim())); };
   const file = Object.assign(document.createElement('input'), { type: 'file', accept: 'application/json,.json' });
-  const drop = text('label', `${anchorEntry ? 'Or drop' : 'Drop'} an attestation file (with its public proof bundle) or a proof package here, or `, 'drop');
+  const drop = text('label', `${anchorEntry ? 'Or drop' : 'Drop'} an attestation file (with its public proof bundle) or a proof package (with its attestation) here, or `, 'drop');
   drop.append(file);
 
   let anchored = null;
@@ -98,7 +98,7 @@ export async function mountVerify(el, config = './verify.config.json') {
       if (dropped.package) {
         // The ZK step loads @aztec/bb.js (import map) on first use; the other checks need nothing extra.
         show('Checking… (zero-knowledge proofs can take a few seconds)');
-        renderPackage(result, await checkPackage(dropped.package, { providers, keys, resolveDid,
+        renderPackage(result, await checkPackage(dropped.package, { providers, keys, resolveDid, attestation: dropped.attestation,
           registries: anchored?.registries ?? [] }), providers);
         return;
       }

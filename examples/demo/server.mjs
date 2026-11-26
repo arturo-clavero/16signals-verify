@@ -6,14 +6,20 @@
 //   POST /webhook        the verifier's webhook        GET  /status/<proofId>  receipts received so far
 //   POST /bundle         { proofId, bundle } -> verified, packaged and checked
 //   GET  /did.json       the verifier's DID document   GET  /verify/  the verify page (with that DID trusted)
+//   GET  /verify/keys.json  the trusted keys: the repository's, the verifier's DID and the demo issuer's key
 //
-//   DEMO_PORT=18474 DEMO_HOST=127.0.0.1 VERIFIER_URL=http://localhost:17047 [DID_FILE=did.json] node examples/demo/server.mjs
-import { randomBytes, randomUUID } from 'node:crypto';
+// The demo is also the issuer: it signs an attestation of each package's claim (an Ed25519 key from ISSUER_KEY_FILE,
+// a PKCS#8 PEM, or a new one at every start) and trusts its own key on the verify page.
+//
+//   DEMO_PORT=18474 DEMO_HOST=127.0.0.1 VERIFIER_URL=http://localhost:17047 [DID_FILE=did.json] [ISSUER_KEY_FILE=issuer.pem] \
+//     node examples/demo/server.mjs
+import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPackage, checkPackage, packageLines, webhookRun } from '../../packages/proof-check/index.mjs';
+import { bundleCommitment, buildPackage, checkPackage, createAttestation, packageHash, packageLines, signAttestation, verifierKeyId,
+  webhookRun } from '../../packages/proof-check/index.mjs';
 import { PROVIDERS } from './providers.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -22,6 +28,7 @@ const STATIC = ['verify/', 'packages/proof-check/', 'private-proof/'];
 const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
 const MAX_BODY = 16 * 1024 * 1024;
 const MAX_WEBHOOKS = 512;
+const ATTESTATION_DAYS = 30;
 
 class HttpError extends Error {
   constructor(status, error, extra = {}) { super(error); this.status = status; this.extra = extra; }
@@ -36,11 +43,19 @@ export const proxyUrlFor = verifierUrl => {
   return `${url}?token=`;
 };
 
+/** The demo issuer's key: `{ privateKeyPem, key: { id, label, publicKeyPem } }`, from a PKCS#8 Ed25519 PEM or new. */
+export async function issuerKey(privateKeyPem = generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' })) {
+  const publicKeyPem = createPublicKey(privateKeyPem).export({ type: 'spki', format: 'pem' });
+  return { privateKeyPem, key: { id: await verifierKeyId(publicKeyPem), label: 'demo issuer', publicKeyPem } };
+}
+
 /**
  * The demo's request handler and its in-memory state. `did`: the verifier's DID document (default: `didFile`, else
- * fetched from `<verifierUrl>/.well-known/did.json`). `zk`: checkPackage's ZK options.
+ * fetched from `<verifierUrl>/.well-known/did.json`). `issuer`: the key that signs each package's claim (`issuerKey()`;
+ * default: a new one). `zk`: checkPackage's ZK options.
  */
-export function createDemo({ verifierUrl = 'http://localhost:17047', did, didFile, providers = PROVIDERS, now = () => Date.now(), zk } = {}) {
+export function createDemo({ verifierUrl = 'http://localhost:17047', did, didFile, issuer, providers = PROVIDERS, now = () => Date.now(), zk } = {}) {
+  const issuing = issuer ? Promise.resolve(issuer) : issuerKey();
   const attempts = new Map();   // proofId -> { provider, proofId, nonceMac, pluginSha256, context, policy?, params }
   const webhooks = new Map();   // result id (session.id) -> webhook payload
   const runtimes = new Map();   // provider -> Promise<{ runtime, vk }>
@@ -115,9 +130,17 @@ export function createDemo({ verifierUrl = 'http://localhost:17047', did, didFil
         vks: Object.fromEntries(used.map(id => [id, loaded.vk(id)])) });
     } catch (error) { throw new HttpError(422, error.message); }
 
-    // 3. Re-checked the way any reader would.
-    const checked = await checkPackage(pkg, { providers: descriptors, keys: { dids: [await verifierDid()] }, zk });
-    return { status: checked.status, claim: checked.claim, proofHash: checked.proofHash, lines: packageLines(checked), package: pkg };
+    // 3. The issuer's signed attestation of the claim, over the package hash.
+    const { privateKeyPem, key } = await issuing;
+    const { claim, window } = p.descriptor.claimFromResult(result);
+    const fields = { provider: pkg.provider, claim, window, proofHash: await packageHash(pkg),
+      ...(Object.keys(pkg.pins).length ? { vkHashes: pkg.pins } : {}) };
+    const attestation = await signAttestation(createAttestation({ ...fields, commitment: await bundleCommitment(fields),
+      issuedAt: new Date(now()).toISOString(), expiresAt: new Date(now() + ATTESTATION_DAYS * 86400000).toISOString() }), privateKeyPem);
+
+    // 4. Re-checked the way any reader would.
+    const checked = await checkPackage(pkg, { providers: descriptors, keys: { dids: [await verifierDid()], keys: [key] }, attestation, zk, now: now() });
+    return { status: checked.status, claim: checked.claim, proofHash: checked.proofHash, lines: packageLines(checked), package: pkg, attestation };
   }
 
   async function serveFile(res, path) {
@@ -158,10 +181,11 @@ export function createDemo({ verifierUrl = 'http://localhost:17047', did, didFil
       if (pathname === '/did.json') return send(res, 200, await verifierDid());
       if (pathname.startsWith('/status/')) return send(res, 200, { received: received(pathname.slice(8)) });
       if (pathname === '/verify') return res.writeHead(302, { location: '/verify/' }).end();
-      // The verify page with the verifier's DID document trusted, so receipts from a local verifier check there too.
+      // The verify page with the verifier's DID document and the demo issuer's key trusted, so receipts from a local
+      // verifier and the claims the demo signs check there too.
       if (pathname === '/verify/keys.json') {
         const keys = JSON.parse(await readFile(resolve(REPO, 'verify/keys.json'), 'utf8'));
-        return send(res, 200, { ...keys, dids: [...(keys.dids ?? []), await verifierDid()] });
+        return send(res, 200, { ...keys, keys: [...(keys.keys ?? []), (await issuing).key], dids: [...(keys.dids ?? []), await verifierDid()] });
       }
       return await serveFile(res, pathname.endsWith('/') ? `${pathname}index.html` : pathname);
     } catch (error) {
@@ -176,7 +200,8 @@ export function createDemo({ verifierUrl = 'http://localhost:17047', did, didFil
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.DEMO_PORT ?? 18474);
   const host = process.env.DEMO_HOST ?? '127.0.0.1';
-  const demo = createDemo({ verifierUrl: process.env.VERIFIER_URL ?? 'http://localhost:17047', didFile: process.env.DID_FILE });
+  const issuer = await issuerKey(process.env.ISSUER_KEY_FILE ? await readFile(process.env.ISSUER_KEY_FILE, 'utf8') : undefined);
+  const demo = createDemo({ verifierUrl: process.env.VERIFIER_URL ?? 'http://localhost:17047', didFile: process.env.DID_FILE, issuer });
   createServer(demo.handler).listen(port, host, () => {
     console.log(`demo on http://localhost:${port}/ (listening on ${host}:${port}), verifier ${process.env.VERIFIER_URL ?? 'http://localhost:17047'}`);
   });

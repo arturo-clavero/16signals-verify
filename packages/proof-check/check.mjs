@@ -61,12 +61,16 @@ export const RESTS_ON_SIGNATURE = Object.freeze([
   'The zero-knowledge proofs verify against the pinned keys. This page does not re-run the ZK verifier.',
 ]);
 
-/** Accepts a dropped file: a public bundle, a signed attestation, { attestation, bundle }, or a proof package. */
+/**
+ * Accepts a dropped file: a public bundle, a signed attestation, { attestation, bundle }, a proof package, or
+ * { package, attestation } (a package with the issuer's signed attestation of its claim).
+ */
 export function parseDropped(text) {
   let value;
   try { value = JSON.parse(text); } catch { throw new Error('Not a JSON file.'); }
   if (value && typeof value.kind === 'string' && Array.isArray(value.proofs)) return { bundle: value };
   if (isProofPackage(value)) return { package: value };
+  if (isProofPackage(value?.package)) return value.attestation ? { package: value.package, attestation: value.attestation } : { package: value.package };
   if (value?.type === 'tlsn-attestation') return { attestation: value };
   if (value && (value.attestation || value.bundle)) return { attestation: value.attestation, bundle: value.bundle };
   throw new Error('Unrecognised file: expected a proof bundle, an attestation or a proof package.');

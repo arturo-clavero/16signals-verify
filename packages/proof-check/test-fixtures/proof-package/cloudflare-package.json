@@ -1,7 +1,7 @@
 {
   "v": 1,
   "provider": "cloudflare",
-  "claim": "cloudflare:groups:1,2:user",
+  "claim": "cloudflare:groups:1,4,5:user",
   "runs": [
     {
       "receipt": "eyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDp3ZWI6dmVyaWZpZXIudGVzdC5pbnZhbGlkI3Rsc24tYXR0ZXN0b3IiLCJ0eXAiOiJ0bHNuLXJlY2VpcHQrandzIn0.eyJ2IjoyLCJzZXJ2ZXJOYW1lIjoiYXBpLmNsb3VkZmxhcmUuY29tIiwic2Vzc2lvbklkIjoiMGI4ZThmMGUtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGMxIiwicHJvb2ZJZCI6IjNmMmI4YzFlLTVkNGEtNGMzYi05YTFmLTAwMDAwMDAwMDBjMSIsInZlcmlmaWVkQXQiOiIyMDI2LTExLTI1VDA4OjAxOjAwLjAwMFoiLCJ0bHNuVmVyc2lvbiI6IjAuMS4wLWFscGhhLjE1Iiwicm9vdCI6IjYzMjIxMjNiZmExNzI3ZDBjYzE3Y2ZlNzhkNWVhNzRjOTdhMWQ5MjlmM2ZiNGM4MTQ4ODRiZGRjOWE4NGQzZjUiLCJsZWFmQ291bnQiOjE3fQ.vS6LouWGOydAg7SCKjrhaPLRojYddI8AhjXM7WuBoCXC28MreXL2qB4PVY-9DbkwL74BSKEwtSNcQJ6h5ihrDA",

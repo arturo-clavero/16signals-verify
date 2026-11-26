@@ -20,7 +20,8 @@ const result = await verifyCommitment({
 ```
 
 `evaluate({ commitment, attestations, bundle, keys, providers, now })` is the same without the lookup.
-`parseDropped(text)` reads a file holding a bundle, an attestation, or `{ attestation, bundle }`.
+`parseDropped(text)` reads a file holding a bundle, an attestation, `{ attestation, bundle }`, a proof package, or
+`{ package, attestation }` (a package with the issuer's signed attestation of its claim).
 
 The result:
 
@@ -71,10 +72,11 @@ import { checkPackage, packageLines, closeZk } from '@tlsn-fork/proof-check';
 
 const result = await checkPackage(pkg, {
   providers: [gcp, aws, cloudflare],
-  keys: { dids: [didDocument], keys: [] },  // trusted DID documents (receipts) and attestation keys (on-chain)
+  keys: { dids: [didDocument], keys: [] },  // trusted DID documents (receipts) and attestation keys (on-chain, claim)
   resolveDid,                               // optional: did -> DID document, for issuers not in keys.dids
   registries,                               // optional: { findByProofHash } for the on-chain check
   claim, proofHash,                         // optional: what a published claim says; must match
+  attestation,                              // optional: the issuer's signed attestation of the package's claim
 });
 // { status: 'verified' | 'partial' | 'failed', proofHash, provider, claim, checks: [{ id, ok, label, detail?, reason? }] }
 ```
@@ -84,7 +86,7 @@ const result = await checkPackage(pkg, {
 | `receipt-signature` | Every receipt verifies (EdDSA, `typ` `tlsn-receipt+jws`) under the key its `kid` names in the issuer's did:web document, listed in `assertionMethod` |
 | `server-name` | Every signed `serverName` is one of the descriptor's `hosts` for that session's position in its proof |
 | `signed-root` | Disclosed bytes, commitments and hidden leaf hashes rebuild every signed Merkle root and leaf count |
-| `claim-from-data` | The descriptor's `claimFromData` rebuilds the package's claim from the disclosed bytes. With nothing disclosed it is `ok: null, reason: 'attested'` (taken from the issuer); it fails when `claim` names another claim |
+| `claim-from-data` | In order: the descriptor's `claimFromData` rebuilds the claim from the disclosed bytes; or, once `zk-proofs` passed, the descriptor's `claim` rebuilds it from the proofs' public inputs (GCP); or an attestation signed by a key in `keys.keys`, unexpired, names this package hash, provider and claim (`attestation`, else the record the `on-chain` check found). A rebuilt claim or a trusted signature that differs fails, as does `claim` naming another claim. Otherwise `ok: null, reason: 'attested'` (the package's own claim, taken from the issuer); a claim the proofs determine but that waits on `zk-proofs` is not run |
 | `zk-proofs` | Every proof verifies under the provider's pinned key, and together they open every signed commitment digest. A provider with pins requires them; without any it is `reason: 'not-applicable'` |
 | `on-chain` | A registry holds an attestation naming `proofHash`, signed by a key in `keys.keys` |
 
@@ -172,14 +174,15 @@ Each provider module default-exports a descriptor. Registry entries are for the 
 ```sh
 proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
 proof-check --uid <BAS uid> [--network bsc] [--bundle bundle.json] [--keys keys.json] [--config config.json]
-proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc]] [--keys keys.json] [--config config.json]
+proof-check --proof package.json [--did did.json] [--claim <claim>] [--attestation attestation.json] [--uid <BAS uid> [--network bsc]] [--keys keys.json] [--config config.json]
 ```
 
 With `--uid` (and no file) the signed attestation is read from that BAS record through the config's `bnb` registry,
 as the verify page's `?uid=` does; `--bundle` adds the public proof bundle, which is not on chain.
 
-With `--proof` it re-checks a proof package: `--did` adds a trusted DID document, `--uid` reads that BAS attestation
-through the config's `bnb` registry for the on-chain check. Lines are marked `ok`, `FAIL`, `att` (attested), `n/a` or
+With `--proof` it re-checks a proof package (or `{ package, attestation }`): `--did` adds a trusted DID document,
+`--attestation` the issuer's signed attestation of the claim (its key must be in `keys`), `--uid` reads that BAS
+attestation through the config's `bnb` registry for the on-chain check, which also backs the claim. Lines are marked `ok`, `FAIL`, `att` (attested), `n/a` or
 `--` (not run).
 
 The file holds a signed attestation or `{ attestation, bundle }`. Providers, and keys unless `--keys` is given, come

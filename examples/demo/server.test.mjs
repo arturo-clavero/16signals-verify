@@ -121,12 +121,19 @@ test('webhooks + bundle -> a package that checks (receipt-signature, server-name
   assert.deepEqual(Object.keys(pkg.vks).sort(), Object.keys(pkg.pins).sort());
   assert.equal(body.status, 'partial');  // the ZK proofs are placeholders and bb.js is not loaded
   for (const id of ['receipt-signature', 'server-name', 'signed-root']) assert.match(body.lines.find(l => l.includes(` ${id}:`)), /^ok /, id);
+  // The demo signs the claim as its issuer, so the claim check passes on that signature.
+  assert.match(body.lines.find(l => l.includes(' claim-from-data:')), /^ok .*signed by demo issuer\)$/);
   assert.equal(body.lines.at(-1), `partial ${body.proofHash} ${claim}`);
+  assert.equal(body.attestation.proofHash, body.proofHash);
+  assert.equal(body.attestation.claim, claim);
 
-  // The returned package checks the same way on its own.
+  // The returned package checks the same way on its own; with the issuer's key from the demo's keys.json, so does the claim.
   const checked = await checkPackage(pkg, { providers: [cloudflare], keys: { dids: [did] }, zk: noBb });
   assert.deepEqual(checked.checks.filter(c => c.ok === true).map(c => c.id), ['receipt-signature', 'server-name', 'signed-root']);
   assert.equal(checked.proofHash, body.proofHash);
+  const trusted = (await call('/verify/keys.json')).body;
+  const signed = await checkPackage(pkg, { providers: [cloudflare], keys: trusted, attestation: body.attestation, zk: noBb, now });
+  assert.equal(signed.checks.find(c => c.id === 'claim-from-data').ok, true);
 }));
 
 test('a tampered bundle, a session of another attempt and unknown attempts are refused', () => withDemo(async ({ demo, call }) => {
@@ -181,7 +188,9 @@ test('static files: the page, the verify page with the DID trusted, nothing outs
   assert.equal((await call('/verify/')).status, 200);
   assert.equal((await call('/verify/page.mjs')).type, 'text/javascript');
   assert.equal((await call('/private-proof/cloudflare/descriptor.mjs')).status, 200);
-  assert.deepEqual((await call('/verify/keys.json')).body.dids, [did]);
+  const keys = (await call('/verify/keys.json')).body;
+  assert.deepEqual(keys.dids, [did]);
+  assert.deepEqual(keys.keys.map(key => key.label), ['demo issuer']);
   assert.deepEqual((await call('/did.json')).body, did);
   for (const path of ['/package.json', '/servers/verifier/Cargo.toml', '/private-proof/gcp/package.json/../../../package.json', '/examples/demo/server.mjs',
     '/%2e%2e/%2e%2e/etc/passwd', '/private-proof/gcp/node_modules/x.js']) {

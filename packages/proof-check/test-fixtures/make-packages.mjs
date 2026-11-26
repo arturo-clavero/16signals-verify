@@ -22,7 +22,7 @@ import { pinnedKeyHash } from '../bundle.mjs';
 import { planCloudflareSession, cloudflarePageRows, inspectCloudflareSession } from '../../../private-proof/cloudflare/session.mjs';
 import { requestBytes, responseBytes, identityBody, pageBody } from '../../../private-proof/cloudflare/session-fixture.mjs';
 import { receiptFor } from '../../../private-proof/cloudflare/receipt-fixture.mjs';
-import { authenticatedCloudflareTranscript, cloudflareTargets } from '../../../private-proof/cloudflare/verify-bundle.mjs';
+import { authenticatedCloudflareTranscript, cloudflareTargets, verifyCloudflareBundle } from '../../../private-proof/cloudflare/verify-bundle.mjs';
 import { verifyBundle as verifyGcpBundle, assembleBundleExpectations } from '../../../private-proof/gcp/verify-bundle.mjs';
 import { inspectGcpSession } from '../../../private-proof/gcp/gcp-structure.mjs';
 import { BATCHES } from '../../../private-proof/gcp/policy.mjs';
@@ -117,7 +117,8 @@ write('did.json', {
     proofs: targets.map(t => ({ circuitId: t.circuitId, proof: Buffer.alloc(16).toString('base64'), publicInputs: t.publicInputs.map(String) })) };
   const runs = sessions.map((s, i) => packageRun(s.receipt, { serverName: 'api.cloudflare.com', sessionId: s.expected.sessionId, proofId,
     verifiedAt: new Date(issuedAt + 60000 * (i + 1)).toISOString(), zk: i === 0 ? zk : null }));
-  const pkg = { v: 1, provider: 'cloudflare', claim: 'cloudflare:groups:1,2:user', runs, pins: pinsFor(cloudflare, zk.proofs), vks: {} };
+  const result = await verifyCloudflareBundle({ sessions, bundle: zk, runtime: accept, now: issuedAt + 60000 });
+  const pkg = { v: 1, provider: 'cloudflare', claim: cloudflare.claimFromResult(result).claim, runs, pins: pinsFor(cloudflare, zk.proofs), vks: {} };
   write('cloudflare-package.json', pkg);
 }
 

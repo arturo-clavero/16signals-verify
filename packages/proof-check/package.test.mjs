@@ -3,7 +3,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { bundleCommitment, checkPackage, closeZk, createAttestation, didWebUrl, packageHash, packageLines, parseDropped,
   signAttestation, verifierKeyId } from './index.mjs';
@@ -124,7 +126,7 @@ test('Cloudflare: 1-3 pass, the claim is attested, ZK binds but needs bb.js, no 
   assert.equal(c['on-chain'].reason, 'not-applicable');
   assert.equal(r.status, 'partial'); // ZK cannot run without verification keys
   assert.equal(r.proofHash, await packageHash(pkg));
-  assert.equal(r.claim, 'cloudflare:groups:1,2:user');
+  assert.equal(r.claim, 'cloudflare:groups:1,4,5:user');
   assert.equal(packageLines(r).length, 7);
 });
 
@@ -184,7 +186,13 @@ for (const name of ['gcp', 'aws']) {
   test(`${name.toUpperCase()}: hidden leaves and commitments rebuild the roots; ZK binds every signed commitment`, async () => {
     const c = byId(await run(load(`${name}-package.json`)));
     for (const id of ['receipt-signature', 'server-name', 'signed-root']) assert.equal(c[id].ok, true, `${id}: ${c[id].detail}`);
-    assert.equal(c['claim-from-data'].reason, 'attested');
+    // GCP: the claim is checked against the public inputs only once the proofs verify (not run, never passed). AWS page
+    // runs: the public inputs do not determine the groups, so without a signed attestation the claim is attested.
+    assert.equal(c['claim-from-data'].ok, null);
+    if (name === 'gcp') {
+      assert.equal(c['claim-from-data'].reason, undefined);
+      assert.match(c['claim-from-data'].detail, /once the proofs verify/);
+    } else assert.equal(c['claim-from-data'].reason, 'attested');
     assert.equal(c['zk-proofs'].ok, null, c['zk-proofs'].detail);
     assert.match(c['zk-proofs'].detail, /open the \d+ signed commitments/);
   });
@@ -214,6 +222,133 @@ test('a malformed package or an unknown provider fails every check with the reas
 test('a dropped proof package is recognised', () => {
   const pkg = load('gcp-zk-package.json');
   assert.deepEqual(parseDropped(JSON.stringify(pkg)), { package: pkg });
+});
+
+// ── claims checked against the proofs' public inputs ───────────────────────────────────────────────────────────
+
+/**
+ * The fixture packages carry placeholder proofs: here a stand-in verifier accepts (or rejects) every proof, under a
+ * test key pinned by a copy of the descriptor. The binding to the signed commitments is still checked for real.
+ */
+const TEST_KEY = Buffer.from('test verification key');
+const TEST_SHA = createHash('sha256').update(TEST_KEY).digest('hex');
+const fakeBb = verdict => async () => ({
+  BackendType: { Wasm: 'wasm' },
+  Barretenberg: class { static async new() { return { destroy: async () => {} }; } async initSRSChonk() {} },
+  UltraHonkVerifierBackend: class { async verifyProof() { return verdict; } },
+});
+async function withProofs(name, { verdict = true, edit = pkg => pkg, ...options } = {}) {
+  const pkg = load(name);
+  const descriptor = providers.find(p => p.id === pkg.provider);
+  pkg.pins = Object.fromEntries(Object.keys(pkg.pins).map(id => [id, TEST_SHA]));
+  edit(pkg);
+  try {
+    return await run(pkg, { providers: [{ ...descriptor, pins: { circuits: Object.fromEntries(Object.keys(pkg.pins).map(id => [id, { sha256: TEST_SHA }])) } }],
+      zk: { loadBb: fakeBb(verdict), verificationKey: async () => TEST_KEY }, ...options });
+  } finally {
+    await closeZk();
+  }
+}
+
+test('GCP: once the proofs verify, the claim is rebuilt from their public inputs', async () => {
+  const r = await withProofs('gcp-package.json');
+  const c = byId(r);
+  assert.equal(c['zk-proofs'].ok, true, c['zk-proofs'].detail);
+  assert.equal(c['claim-from-data'].ok, true, c['claim-from-data'].detail);
+  assert.match(c['claim-from-data'].detail, /from the proofs' public inputs$/);
+  assert.equal(r.status, 'verified');
+});
+
+test('GCP: a claim the public inputs do not give fails, even when signed; proofs that do not verify leave it unchecked', async () => {
+  const tampered = await withProofs('gcp-package.json', { edit: pkg => { pkg.claim = 'gcp:observed:g1'; } });
+  assert.equal(byId(tampered)['claim-from-data'].ok, false);
+  assert.match(byId(tampered)['claim-from-data'].detail, /the proofs' public inputs give "gcp:observed:g0,/);
+
+  const rejected = await withProofs('gcp-package.json', { verdict: false });
+  assert.equal(byId(rejected)['zk-proofs'].ok, false);
+  assert.equal(byId(rejected)['claim-from-data'].ok, null);
+  assert.match(byId(rejected)['claim-from-data'].detail, /do not verify/);
+  assert.equal(rejected.status, 'failed');
+
+  const skipped = byId(await withProofs('gcp-package.json', { zk: { skip: 'skipped here' } }))['claim-from-data'];
+  assert.equal(skipped.ok, null);
+  assert.equal(skipped.reason, undefined);
+});
+
+for (const name of ['aws', 'cloudflare']) {
+  test(`${name}: the public inputs do not determine the claim, so it is attested even when the proofs verify`, async () => {
+    const c = byId(await withProofs(`${name}-package.json`));
+    assert.equal(c['zk-proofs'].ok, true, c['zk-proofs'].detail);
+    assert.equal(c['claim-from-data'].ok, null);
+    assert.equal(c['claim-from-data'].reason, 'attested');
+  });
+}
+
+// ── claims signed by a trusted issuer ───────────────────────────────────────────────────────────────────────────
+
+const NOW = Date.now();
+async function newIssuer(label = 'test issuer') {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' });
+  return { privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }), key: { id: await verifierKeyId(publicKeyPem), label, publicKeyPem } };
+}
+async function attest(pkg, issuer, overrides = {}) {
+  const fields = { provider: pkg.provider, claim: pkg.claim, proofHash: await packageHash(pkg), ...overrides };
+  return signAttestation(createAttestation({ ...fields, commitment: await bundleCommitment(fields),
+    issuedAt: new Date(NOW - 60000).toISOString(), expiresAt: new Date(NOW + 86400000).toISOString() }), issuer.privateKeyPem);
+}
+
+test('a claim signed by a listed issuer key over the package hash passes; another key, claim or package does not', async () => {
+  const pkg = load('cloudflare-package.json');
+  const issuer = await newIssuer();
+  const signedBy = async (attestation, trusted = [issuer.key]) => byId(await run(pkg, { attestation, keys: { dids: [did], keys: trusted }, now: NOW }))['claim-from-data'];
+
+  const ok = await signedBy(await attest(pkg, issuer));
+  assert.equal(ok.ok, true, ok.detail);
+  assert.equal(ok.detail, `${pkg.claim}, signed by test issuer`);
+
+  const unlisted = await signedBy(await attest(pkg, await newIssuer('other')));
+  assert.equal(unlisted.ok, null);
+  assert.equal(unlisted.reason, 'attested');
+  assert.match(unlisted.detail, /not signed by a listed key/);
+
+  const otherClaim = await signedBy(await attest(pkg, issuer, { claim: 'cloudflare:groups:3:user' }));
+  assert.equal(otherClaim.ok, false);
+  assert.match(otherClaim.detail, /backs "cloudflare:groups:3:user"/);
+
+  const otherPackage = await signedBy(await attest(pkg, issuer, { proofHash: 'a'.repeat(64) }));
+  assert.equal(otherPackage.ok, false);
+  assert.match(otherPackage.detail, /names package a{64}/);
+
+  const forged = { ...(await attest(pkg, issuer)), claim: 'cloudflare:groups:3:user' };
+  assert.equal((await signedBy(forged)).reason, 'attested');
+});
+
+test('AWS: a signed claim passes once nothing in the proofs contradicts it; the on-chain record is reused', async () => {
+  const pkg = load('aws-package.json');
+  const issuer = await newIssuer();
+  const attestation = await attest(pkg, issuer);
+  let lookups = 0;
+  const registry = { findByProofHash: async () => { lookups += 1; return [attestation]; } };
+  const r = await run(pkg, { registries: [registry], keys: { dids: [did], keys: [issuer.key] }, now: NOW });
+  const c = byId(r);
+  assert.equal(c['on-chain'].ok, true, c['on-chain'].detail);
+  assert.equal(c['claim-from-data'].ok, true, c['claim-from-data'].detail);
+  assert.match(c['claim-from-data'].detail, /signed by test issuer$/);
+  assert.equal(lookups, 1);
+});
+
+test('a package with its attestation in one file is recognised', async () => {
+  const pkg = load('cloudflare-package.json');
+  const attestation = await attest(pkg, await newIssuer());
+  assert.deepEqual(parseDropped(JSON.stringify({ package: pkg, attestation })), { package: pkg, attestation });
+  assert.deepEqual(parseDropped(JSON.stringify({ package: pkg })), { package: pkg });
+});
+
+test('a package that names no claim: the claim check is not applicable', async () => {
+  const c4 = byId(await run(load('gcp-zk-package.json')))['claim-from-data'];
+  assert.equal(c4.ok, null);
+  assert.equal(c4.reason, 'not-applicable');
 });
 
 // ── on chain ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -326,10 +461,29 @@ test('CLI --proof prints one line per check; exits 2 when a check could not run,
   assert.equal(lines.length, 7, partial.out);
   assert.match(lines[0], /^ok {3}receipt-signature: /);
   assert.match(lines[3], /^att {2}claim-from-data: /);
-  assert.match(lines[6], /^partial [0-9a-f]{64} cloudflare:groups:1,2:user$/);
+  assert.match(lines[6], /^partial [0-9a-f]{64} cloudflare:groups:1,4,5:user$/);
   assert.equal(partial.code, 2);
 
   assert.equal(cli('--proof', fixture('cloudflare-package.json'), '--did', fixture('did.json'), '--claim', 'cloudflare:groups:3:user').code, 1);
   assert.equal(cli('--proof', fixture('did.json')).code, 2);
   assert.equal(cli('--proof').code, 2);
+});
+
+test('CLI --proof with { package, attestation } and --keys: the signed claim passes; --attestation gives it separately', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'proof-check-'));
+  try {
+    const pkg = load('cloudflare-package.json');
+    const issuer = await newIssuer();
+    const attestation = await attest(pkg, issuer);
+    const file = name => join(dir, name);
+    writeFileSync(file('keys.json'), JSON.stringify({ keys: [issuer.key], dids: [did] }));
+    writeFileSync(file('both.json'), JSON.stringify({ package: pkg, attestation }));
+    writeFileSync(file('attestation.json'), JSON.stringify(attestation));
+    const both = cli('--proof', file('both.json'), '--keys', file('keys.json'));
+    assert.match(both.out.split('\n')[3], /^ok {3}claim-from-data: .*signed by test issuer\)$/, both.out);
+    const apart = cli('--proof', fixture('cloudflare-package.json'), '--keys', file('keys.json'), '--attestation', file('attestation.json'));
+    assert.match(apart.out.split('\n')[3], /^ok {3}claim-from-data: /, apart.out);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
