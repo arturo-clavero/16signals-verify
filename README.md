@@ -9,7 +9,31 @@
 > - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
 > - anchoring of signed attestations on BNB Smart Chain through the BNB Attestation Service (`crops/bnb-anchor`)
 >
-> Licensed like upstream: MIT or Apache-2.0, at your option. The upstream README follows.
+> Licensed like upstream: MIT or Apache-2.0, at your option.
+
+## What BNB Chain does here
+
+A verified proof ends as a signed attestation: a small record saying which provider was checked, the coarse claim
+that was proven (for example the skill groups and their levels), the time window, a commitment to the private values,
+the proof hash and the verifier's Ed25519 signature. By default it is a file the user keeps.
+
+BNB Smart Chain makes that record public and durable without anyone hosting the file. [`crops/bnb-anchor`](crops/bnb-anchor)
+writes the signed attestation into the BNB Attestation Service (BAS), the attestation contract and schema registry
+that BNB Chain already runs. This repository deploys no contract of its own: it registers one schema and writes one
+record per attestation. The [verify page](verify/) reads a record back by its BAS UID and runs exactly the checks it
+runs on a file.
+
+- **What goes on chain:** only the signed attestation. Never a proof, a transcript, or an identifier of the user or
+  their account.
+- **Who can anchor:** anyone holding an attestation. Trust comes from the signature inside the record, checked against
+  [`verify/keys.json`](verify/keys.json), so anchoring a forged record gains nothing.
+- **Networks:** BSC testnet by default (chain id 97); BSC mainnet (56) with `BNB_NETWORK=bsc`.
+
+Details, schema and commands: [docs/bnb.md](docs/bnb.md).
+
+---
+
+*The upstream README follows.*
 
 ## Documentation
 
