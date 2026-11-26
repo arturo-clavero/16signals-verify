@@ -19,6 +19,7 @@
   h2 { font-size: 16px; margin: 0 0 8px; }
   fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
   label { display: inline-flex; gap: 6px; align-items: center; }
+  [hidden] { display: none !important; }
   .fields { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
   input[type=text], select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
   button, a.button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer; text-decoration: none; display: inline-block; }
@@ -115,7 +116,10 @@ function runBuiltIn(payload) {
       const d = event.data;
       if (event.source !== window || event.origin !== location.origin || d?.requestId !== payload.requestId) return;
       if (d.type === 'TLSN_RUN_BUILTIN_ACK') { clearTimeout(ackTimer); log('extension: run accepted (ACK). Sign in in the window that opens and keep it open.'); }
-      else if (d.type === 'TLSN_PLUGIN_PROGRESS') log(`plugin: ${d.method} ${d.status} ${d.index}/${d.total}`);
+      else if (d.type === 'TLSN_PLUGIN_PROGRESS') log(d.status === 'busy'
+        // The private proofs report each zero-knowledge proof made in the browser; `total` is a cap, not a count.
+        ? `zero-knowledge proofs: ${d.index} made (${d.method}, at most ${d.total})`
+        : `plugin: ${d.method} ${d.status} ${d.index}/${d.total}`);
       else if (d.type === 'TLSN_PROVE_PROGRESS') log(`prover: ${d.message ?? d.step ?? JSON.stringify(d)}`);
       else if (d.type === 'TLSN_RUN_BUILTIN_RESPONSE') {
         done();
