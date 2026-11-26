@@ -2,6 +2,7 @@
 // zero-knowledge proofs and the on-chain record. No DOM, no network: providers, DID documents and registries are
 // passed in. Only the ZK step loads a library (@aztec/bb.js, lazily).
 import { verifyAttestation } from '../attestation.mjs';
+import { publicBundle } from '../bundle.mjs';
 import { canonicalize } from '../commitment.mjs';
 import { isRecord, sha256Hex, utf8 } from './bytes.mjs';
 import { LeafError, resolveLeaves } from './leaves.mjs';
@@ -33,7 +34,7 @@ const LABELS = Object.freeze({
   'receipt-signature': 'Every receipt is signed by the key in the issuer\'s DID document',
   'server-name': 'Every receipt names a host of the provider',
   'signed-root': 'The published pieces rebuild the signed Merkle root',
-  'claim-from-data': 'The claim follows from the disclosed data',
+  'claim-from-data': 'The claim follows from the proofs or the disclosed data, or is signed by a listed issuer key',
   'zk-proofs': 'The zero-knowledge proofs verify and open every signed commitment',
   'on-chain': 'The package hash is in an on-chain record signed by a listed key',
 });
@@ -61,34 +62,57 @@ function shapeError(pkg, descriptor) {
   return null;
 }
 
+/**
+ * The claim as signed by a trusted issuer: the given attestation, else the on-chain one. ok true when it is signed by a
+ * key in `keys.keys`, unexpired, and names this package hash, provider and claim; false when a trusted signature names
+ * another package or claim; null (with why) when there is no attestation from a listed key.
+ */
+async function signedClaim({ attestation, anchored, known, pkg, proofHash, now }) {
+  let trusted = anchored;
+  if (attestation !== undefined && attestation !== null) {
+    const key = known.get(attestation?.verifierKeyId);
+    if (!key) return { ok: null, detail: 'the attestation given is not signed by a listed key' };
+    const verdict = await verifyAttestation(attestation, key.publicKeyPem, { now });
+    if (!verdict.ok) return { ok: null, detail: `the attestation given does not verify (${verdict.reason})` };
+    trusted = { attestation, key };
+  }
+  if (!trusted) return { ok: null, detail: 'no attestation from a listed key' };
+  const { attestation: signed, key } = trusted, by = key.label ?? key.id;
+  if (signed.proofHash !== proofHash) return { ok: false, detail: `the attestation signed by ${by} names package ${signed.proofHash}, not ${proofHash}` };
+  if (signed.provider !== pkg.provider || signed.claim !== pkg.claim) return { ok: false, detail: `the attestation signed by ${by} backs ${JSON.stringify(signed.claim)}, not ${JSON.stringify(pkg.claim)}` };
+  return { ok: true, detail: `${signed.claim}, signed by ${by}` };
+}
+
 const allowedHosts = (descriptor, index) => {
   const hosts = typeof descriptor.hosts === 'function' ? descriptor.hosts(index) : descriptor.hosts;
   return Array.isArray(hosts) ? hosts : null;
 };
 
 /**
- * Runs the package checks in order: receipt-signature, server-name, signed-root, claim-from-data, on-chain, zk-proofs
- * (the slow one last; `checks` lists them in the canonical order). Each check is `{ id, ok, label, detail?, reason? }`
- * with ok true, false, or null (not run here; `detail` says why). `reason` 'attested' or 'not-applicable' marks a null
+ * Runs the package checks in order: receipt-signature, server-name, signed-root, on-chain, zk-proofs (the slow one),
+ * then claim-from-data unless settled earlier (`checks` lists them in the canonical order). Each check is
+ * `{ id, ok, label, detail?, reason? }` with ok true, false, or null (not run here; `detail` says why). `reason` 'attested' or 'not-applicable' marks a null
  * that is settled rather than missing.
  *
  * @param {ProofPackage} pkg
  * @param {object} options
  * @param {object[]} options.providers Provider descriptors; `pkg.provider` picks one (its `hosts`, `pins`, `kind`,
- *   `claimFromData`).
+ *   `claimFromData`, `claim`).
  * @param {{ dids?: object[], keys?: object[] }} [options.keys] Trusted keys: `dids` are DID documents whose receipt keys
- *   are accepted, `keys` the attestation keys an on-chain record must be signed with.
+ *   are accepted, `keys` the attestation keys an on-chain record or a signed claim must be signed with.
  * @param {(did: string) => Promise<object | null>} [options.resolveDid] Fetches a DID document not in `keys.dids`.
  * @param {object[]} [options.registries] Registries with `findByProofHash({ proofHash })` (on-chain).
  * @param {string} [options.claim] The claim as published elsewhere; it must be the package's.
  * @param {string} [options.proofHash] The package hash a published claim names; it must match.
+ * @param {object} [options.attestation] A signed attestation (attestation.mjs) over the package's hash, provider and
+ *   claim; signed by a key in `keys.keys`, it backs the claim when the proofs do not determine it.
  * @param {{ loadBb?: Function, verificationKey?: Function, skip?: string }} [options.zk]
  * @param {Uint8Array} [options.body] The package file's bytes: proofHash is then their sha256.
  * @param {(check: object) => void} [options.onCheck] Called with each check as soon as it is decided.
  * @param {number} [options.now]
  */
 export async function checkPackage(pkg, { providers = [], keys, resolveDid, registries = [], claim, proofHash: expectedHash,
-  zk = {}, body, onCheck, now = Date.now() } = {}) {
+  attestation, zk = {}, body, onCheck, now = Date.now() } = {}) {
   const proofHash = body instanceof Uint8Array ? await sha256Hex(body) : isRecord(pkg) ? await packageHash(pkg).catch(() => null) : null;
   const descriptor = isRecord(pkg) ? providers.find(entry => entry?.id === pkg.provider) : undefined;
   const base = { proofHash, provider: isRecord(pkg) ? pkg.provider ?? null : null, claim: isRecord(pkg) ? pkg.claim ?? null : null };
@@ -156,38 +180,38 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
   [c1, c2, c3].forEach(decided);
   const proofGroups = badRoot ? null : groups.map(g => g.items.map(i => ({ run: pkg.runs[i], payload: payloads[i], resolved: resolved[i] })));
 
-  // claim-from-data: rebuilt by the descriptor from the disclosed bytes when it can; otherwise attested by the issuer.
+  // claim-from-data: settled now when it can be (another claim asked for, roots not rebuilt, no claim, or the disclosed
+  // bytes give it); otherwise after zk-proofs and on-chain, from the proofs or a trusted signature.
   let c4;
   if (claim !== undefined && claim !== pkg.claim) c4 = check('claim-from-data', false, `the package backs ${JSON.stringify(pkg.claim ?? null)}, not ${JSON.stringify(claim)}`);
   else if (!proofGroups) c4 = check('claim-from-data', null, 'not run: the pieces do not rebuild the signed roots');
+  else if (pkg.claim === undefined) c4 = check('claim-from-data', null, 'the package names no claim', SETTLED_REASONS.NOT_APPLICABLE);
   else {
     const runs = proofGroups.flat().map(({ payload, resolved: r }) => ({ serverName: payload.serverName, sessionId: payload.sessionId,
       proofId: payload.proofId, disclosed: r.disclosed.map(({ leaf, bytes }) => ({ direction: leaf.direction, start: leaf.start, end: leaf.end, bytes })) }));
     const rebuilt = runs.some(run => run.disclosed.length) && descriptor.claimFromData ? await descriptor.claimFromData({ claim: pkg.claim, runs }) : null;
-    if (typeof rebuilt === 'string') c4 = check('claim-from-data', rebuilt === pkg.claim, rebuilt === pkg.claim ? rebuilt : `the disclosed data gives ${JSON.stringify(rebuilt)}`);
-    else c4 = check('claim-from-data', null, 'attested by the issuer: the package does not disclose the data the claim was made from', SETTLED_REASONS.ATTESTED);
+    if (typeof rebuilt === 'string') c4 = check('claim-from-data', rebuilt === pkg.claim, rebuilt === pkg.claim ? `${rebuilt}, from the disclosed data` : `the disclosed data gives ${JSON.stringify(rebuilt)}`);
   }
-  decided(c4);
+  if (c4) decided(c4);
 
   // on-chain: an attestation naming this package hash, signed by a listed key, in a registry.
-  let c6;
+  let c6, anchored = null;
+  const known = new Map((keys?.keys ?? []).map(key => [key.id, key]));
   const lookups = registries.filter(registry => typeof registry?.findByProofHash === 'function');
   if (expectedHash !== undefined && expectedHash !== proofHash) c6 = check('on-chain', false, `the published claim names ${String(expectedHash)}, the package hashes to ${proofHash}`);
   else if (!lookups.length) c6 = check('on-chain', null, 'no registry configured: on-chain anchoring is optional', SETTLED_REASONS.NOT_APPLICABLE);
   else {
     const found = (await Promise.all(lookups.map(registry => registry.findByProofHash({ proofHash }).catch(() => [])))).flat();
-    const known = new Map((keys?.keys ?? []).map(key => [key.id, key]));
     let detail = 'not-found';
-    let accepted = null;
     for (const candidate of found) {
       const key = known.get(candidate?.verifierKeyId);
       if (!key) { detail = 'unknown-key'; continue; }
       if (candidate.proofHash !== proofHash) { detail = 'proof-hash-mismatch'; continue; }
       const verdict = await verifyAttestation(candidate, key.publicKeyPem, { now });
-      if (verdict.ok) { accepted = key; break; }
+      if (verdict.ok) { anchored = { attestation: candidate, key }; break; }
       detail = verdict.reason;
     }
-    c6 = check('on-chain', Boolean(accepted), accepted ? `signed by ${accepted.label ?? accepted.id}` : detail);
+    c6 = check('on-chain', Boolean(anchored), anchored ? `signed by ${anchored.key.label ?? anchored.key.id}` : detail);
   }
   decided(c6);
 
@@ -200,6 +224,27 @@ export async function checkPackage(pkg, { providers = [], keys, resolveDid, regi
     c5 = check('zk-proofs', r.ok, r.detail, r.reason);
   }
   decided(c5);
+
+  // claim-from-data, in order: rebuilt from the proofs' public inputs (the descriptor's claim; only once the proofs
+  // verify, as unverified public inputs back nothing), else signed by a trusted issuer (an attestation given with the
+  // package, or the on-chain one) over this package hash, provider and claim, else attested by the issuer.
+  if (!c4) {
+    const bundles = proofGroups.map(group => group.find(({ run }) => run.zk !== null && run.zk !== undefined)?.run.zk).filter(Boolean);
+    let derived = null;
+    if (typeof descriptor.claim === 'function' && bundles.length === 1) {
+      try { derived = descriptor.claim(publicBundle(bundles[0]), { claim: pkg.claim })?.claim ?? null; } catch { /* undetermined */ }
+    }
+    const rebuildable = typeof derived === 'string';
+    const rebuilt = rebuildable && c5.ok === true ? derived : null;
+    const signed = typeof rebuilt === 'string' ? null : await signedClaim({ attestation, anchored, known, pkg, proofHash, now });
+    if (typeof rebuilt === 'string') c4 = check('claim-from-data', rebuilt === pkg.claim, rebuilt === pkg.claim ? `${rebuilt}, from the proofs' public inputs`
+      : `the proofs' public inputs give ${JSON.stringify(rebuilt)}`);
+    else if (signed.ok !== null) c4 = check('claim-from-data', signed.ok, signed.detail);
+    else if (rebuildable && c5.ok !== true) c4 = check('claim-from-data', null, c5.ok === false ? 'not run: the zero-knowledge proofs do not verify'
+      : 'not run: the claim is checked against the proofs\' public inputs once the proofs verify');
+    else c4 = check('claim-from-data', null, `attested by the issuer: the package's own claim; ${signed.detail}`, SETTLED_REASONS.ATTESTED);
+    decided(c4);
+  }
 
   const checks = [c1, c2, c3, c4, c5, c6];
   const ok = combine(checks.filter(c => !settled(c)).map(c => c.ok));

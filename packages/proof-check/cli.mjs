@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Usage: proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
-//        proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc]]
-//                    [--keys keys.json] [--config config.json] [--now <ISO time>]
-// The attestation file holds a signed attestation, or { attestation, bundle }. Providers (and keys, unless --keys)
-// come from the config; the default is verify/verify.config.json in this repository. Prints one line per check.
+//        proof-check --proof package.json [--did did.json] [--claim <claim>] [--attestation attestation.json]
+//                    [--uid <BAS uid> [--network bsc]] [--keys keys.json] [--config config.json] [--now <ISO time>]
+// The attestation file holds a signed attestation, or { attestation, bundle }. The --proof file holds a proof package,
+// or { package, attestation }; --attestation adds the issuer's signed attestation of the package's claim. Providers
+// (and keys, unless --keys) come from the config; the default is verify/verify.config.json in this repository. Prints
+// one line per check.
 // Exit codes: 0 all checks passed, 1 a check failed, 2 bad input. With --proof, attested and not-applicable lines
 // never fail, and a check that could not run here (no DID document, no bb.js) also exits 2.
 import { readFile } from 'node:fs/promises';
@@ -14,8 +16,8 @@ import { checkPackage, packageLines } from './package/check-package.mjs';
 import { closeZk } from './package/zk.mjs';
 
 const USAGE = `usage: proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
-       proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc|bsc-testnet]]
-                   [--keys keys.json] [--config config.json] [--now <ISO time>]`;
+       proof-check --proof package.json [--did did.json] [--claim <claim>] [--attestation attestation.json]
+                   [--uid <BAS uid> [--network bsc|bsc-testnet]] [--keys keys.json] [--config config.json] [--now <ISO time>]`;
 const DEFAULT_CONFIG = new URL('../../verify/verify.config.json', import.meta.url);
 const readJson = async url => JSON.parse(await readFile(url, 'utf8'));
 const exit = (code, message) => { if (message) (code === 2 ? console.error : console.log)(message); process.exit(code); };
@@ -23,7 +25,7 @@ const exit = (code, message) => { if (message) (code === 2 ? console.error : con
 const positional = [], options = {};
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
-  const match = /^--(bundle|keys|config|now|proof|did|claim|uid|network)$/.exec(args[i]);
+  const match = /^--(bundle|keys|config|now|proof|did|claim|attestation|uid|network)$/.exec(args[i]);
   if (match && args[i + 1] !== undefined) options[match[1]] = args[++i];
   else if (args[i].startsWith('-')) exit(2, USAGE);
   else positional.push(args[i]);
@@ -40,7 +42,8 @@ try {
     const dropped = parseDropped(await readFile(options.proof, 'utf8'));
     if (!dropped.package) throw new Error('expected a proof package');
     const dids = [...(keys?.dids ?? []), ...(options.did ? [await readJson(options.did)] : [])];
-    input = { pkg: dropped.package, providers: config.providers, keys: { ...keys, dids }, claim: options.claim, now };
+    const attestation = options.attestation ? await readJson(options.attestation) : dropped.attestation;
+    input = { pkg: dropped.package, providers: config.providers, keys: { ...keys, dids }, claim: options.claim, attestation, now };
   } else {
     const dropped = parseDropped(await readFile(positional[0], 'utf8'));
     if (!dropped.attestation) throw new Error('expected a signed attestation');
