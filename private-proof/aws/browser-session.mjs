@@ -17,6 +17,8 @@ const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: t
 export const AWS_PAGE_RUN = Object.freeze({ pages: 45, ms: 50000, budget: 25, rowCap: AWS_PAGE_ROW_CAP, sessions: AWS_MAX_PAGE_SESSIONS });
 // readAwsPrivateResponse stages of a discovery read that failed in transit rather than being refused.
 const DISCOVERY_TRANSIENT = /^(?:NETWORK|READ|STATUS_5\d\d|LOOKUP_REFUSED_400)$/;
+/** Back-off in ms before each retry of a discovery read that failed in transit (two retries). */
+export const AWS_DISCOVERY_RETRIES = Object.freeze([700, 2000]);
 const fail = stage => { throw Object.assign(new Error('AWS_PRIVATE_COLLECTION_FAILED'), stage ? { stage } : {}); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
   Reflect.ownKeys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
@@ -127,7 +129,13 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
   validateAwsAttempt(attempt, now());
   attempt = { ...attempt };
   const controller = new AbortController();
-  let credentials, used = false, closed = false, pageRows;
+  let credentials, used = false, closed = false, pageRows, discoveryReport;
+  const backOff = ms => new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(wait); reject(Object.assign(new Error('AWS_PRIVATE_COLLECTION_FAILED'), { stage: 'ABORTED' })); };
+    const wait = setTimeout(() => { controller.signal.removeEventListener('abort', abort); resolve(); }, ms);
+    controller.signal.addEventListener('abort', abort, { once: true });
+    if (controller.signal.aborted) abort();
+  });
   const clear = () => {
     closed = true; controller.abort(); clearTimeout(timer);
     if (credentials) for (const key of Object.keys(credentials)) credentials[key] = '';
@@ -141,6 +149,12 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
   };
   return {
     clear,
+    /**
+     * After prepare() of a page run: what discovery could not read (Region names whose probe still failed in transit
+     * after the retries, and whether us-east-1 was read to the end of its budget), for the extension's diagnostics.
+     * Local only, never sent. Undefined before discovery.
+     */
+    discoveryReport: () => (discoveryReport ? structuredClone(discoveryReport) : undefined),
     /** After prepare() of a page run: the event ids each page session proves ({ P0: [...], ... }), else undefined. */
     pageRows: () => (pageRows ? structuredClone(pageRows) : undefined),
     async prepare(capture) {
@@ -191,15 +205,25 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
         const end = Math.floor(attempt.issuedAt / 1000), userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1);
         let discoveryReads = 0;
         const discoveryRead = async options => {
-          try { return await read(options, AWS_LIMITS.discoveryBytes); } catch (error) {
-            // After the first page, a read that fails in transit (timeout, dropped connection, AWS 5xx or throttling)
-            // ends discovery with the pages read so far. The first read, refused access and a closed session still fail.
+          try {
+            // A read that fails in transit (timeout, dropped connection, AWS 5xx or throttling) is retried with a short
+            // back-off before it counts as failed, so a slow moment never silently shrinks what discovery sees.
+            for (let retry = 0; ; retry++) {
+              try { return await read(options, AWS_LIMITS.discoveryBytes); } catch (error) {
+                if (closed || !DISCOVERY_TRANSIENT.test(error?.stage ?? '') || retry >= AWS_DISCOVERY_RETRIES.length) throw error;
+                await backOff(AWS_DISCOVERY_RETRIES[retry]);
+              }
+            }
+          } catch (error) {
+            // Still failing after the retries: after the first page, discovery ends with the pages read so far (and a
+            // Region probe marks the Region unread). The first read, refused access and a closed session still fail.
             if (discoveryReads && !closed && DISCOVERY_TRANSIENT.test(error?.stage ?? '')) return null;
             throw error;
           } finally { discoveryReads++; }
         };
         const discovery = await discoverAwsRegions({ read: discoveryRead, identity, end,
           maxPages: AWS_PAGE_RUN.pages, timeMs: AWS_PAGE_RUN.ms, now });
+        discoveryReport = { unread: [...discovery.probe.unread], homeComplete: discovery.probe.homeComplete };
         phase = 'SELECTION';
         // The job's skill groups (server attempt state) weigh the choice and the session order; they never limit it.
         const jobGroups = Array.isArray(attempt.jobGroups) ? attempt.jobGroups : [];

@@ -153,27 +153,39 @@ test('collection failures carry a fixed stage code and no value', async () => {
   assert.equal(await stageOf(async () => new Response(++calls === 1 ? identity() : JSON.stringify({ Events: [] }))), 'NO_EVENTS');
 });
 
-test('page runs: a later discovery read that fails in transit keeps the pages read so far; a failed first read still fails', async () => {
+test('page runs: a discovery read failing in transit is retried; one that keeps failing keeps the pages read so far; a failing first read still fails', async () => {
   const fixture = identityFixture(), events = pageActivity();
   const identityBody = syntheticWitness(fixture).recv.slice(fixture.receipt.transcript.recv.indexOf('\r\n\r\n') + 4);
-  const run = failAt => {
+  // `failing(n, url)`: whether the n-th CloudTrail read (retries included, any lane) fails in transit.
+  const run = failing => {
     let reads = 0;
     const local = createAwsLocalSession({ attempt: { ...fixtureExpected, expiresAt: fixtureExpected.issuedAt + 15 * 60 * 1000 },
       now: () => fixtureNow, fetchAws: async (url, options) => {
         if (url === 'https://iam.amazonaws.com/') return new Response(identityBody);
         // A dropped connection or the per-request timeout: fetch rejects before any response.
-        if (++reads === failAt) throw new DOMException('signal timed out', 'TimeoutError');
+        if (failing(++reads, url)) throw new DOMException('signal timed out', 'TimeoutError');
         return new Response(pageLookup(events, options.body));
       } });
     const supplied = { credentials: { ...credentials(), expiration: new Date(fixtureNow + 3600000).toISOString() }, accountId: '111122223333' };
     return { local, pending: local.prepare(supplied) };
   };
-  // The sixth read (the 60-90 day slice, which holds nothing) fails; every page before it was read.
-  const late = run(6);
+  const steady = run(() => false);
+  await steady.pending;
+  const expected = steady.local.pageRows();
+  // One dropped read is retried: the run sees and proves exactly what a run without the failure does.
+  const blip = run(n => n === 3);
+  await blip.pending;
+  assert.deepEqual(blip.local.pageRows(), expected);
+  assert.equal(blip.local.discoveryReport().homeComplete, true);
+  // eu-west-1 keeps failing through both retries: the run goes on with everything else and names the unread Region.
+  const late = run((_n, url) => url.includes('eu-west-1'));
   const requests = await late.pending;
   assert.ok(requests.length >= 2);
-  assert.ok(Object.keys(late.local.pageRows()).length >= 1);
-  const error = await run(1).pending.then(() => null, e => e);
+  assert.deepEqual(late.local.pageRows(), expected);
+  assert.deepEqual(late.local.discoveryReport(), { unread: ['eu-west-1'], homeComplete: true });
+  // us-east-1 (identity's home, global services) failing on every try still fails the run.
+  const error = await run((_n, url) => url.includes('us-east-1')).pending.then(() => null, e => e);
   assert.equal(error?.message, 'AWS_PRIVATE_COLLECTION_FAILED');
-  assert.equal(error.stage, 'DISCOVERY_NETWORK');
+  // DISCOVERY_NETWORK when it is the run's very first read, DISCOVERY when Region probes answered first.
+  assert.match(error.stage, /^DISCOVERY(?:_NETWORK)?$/);
 });

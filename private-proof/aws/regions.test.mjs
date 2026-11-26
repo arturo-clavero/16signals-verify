@@ -9,7 +9,7 @@ import { awsPageRows, awsPageRowPieces, matchAwsPageRows, AWS_EVENTS_OPEN } from
 import { pageEvent, pageRow, pageSessionFixture, pageClaims, nativeReceipt, PAGE_IDENTITY } from './page-fixture.mjs';
 import { inspectAwsPageSession } from './page-session.mjs';
 import { fixtureNow } from './event-fixture.mjs';
-import { discoverAwsRegions } from './activity-discovery.mjs';
+import { discoverAwsRegions, AWS_DISCOVERY_REGION_CONCURRENCY } from './activity-discovery.mjs';
 import { rankAwsActivity, packAwsSessions } from './activity-selection.mjs';
 import { DAY, END, IDENTITY, fakeLookup, row, candidate } from './activity-fixture.mjs';
 import { signAwsPrivateRequest } from './browser-session.mjs';
@@ -149,7 +149,7 @@ test('discovery probes every other Region once, skips disabled ones and slices o
   const probes = read.calls.filter(call => call.start === END - 90 * DAY && call.end === END);
   // us-east-1 is read in slices from the start; every other Region gets one probe.
   assert.deepEqual(probes.map(call => call.region).sort(), AWS_REGIONS.filter(region => region !== 'us-east-1').sort());
-  assert.deepEqual(found.probe, { regions: AWS_REGIONS.length, enabled: AWS_REGIONS.length - 2, sliced: ['us-east-1', 'eu-west-1'] });
+  assert.deepEqual(found.probe, { regions: AWS_REGIONS.length, enabled: AWS_REGIONS.length - 2, sliced: ['us-east-1', 'eu-west-1'], unread: [], homeComplete: true });
   const byRegion = region => read.calls.filter(call => call.region === region).length;
   assert.equal(byRegion('ap-southeast-2'), 1);
   assert.equal(byRegion('us-west-2'), 1);
@@ -161,6 +161,32 @@ test('discovery probes every other Region once, skips disabled ones and slices o
   assert.equal(found.regions['af-south-1'], undefined);
   // us-east-1 holds the identity's home and the global services: its failure fails discovery.
   await assert.rejects(discoverAwsRegions({ read: fakeLookup(rows, { disabled: ['us-east-1'] }), identity: IDENTITY, end: END }));
+});
+
+test('discovery names a Region it could not read (failed in transit after retries) instead of dropping it silently', async () => {
+  const rows = [row('iam-access:CreateRole', END - DAY), row('lambda:CreateFunction20150331', END - 2 * DAY, { region: 'eu-west-1' }),
+    row('s3:PutBucketPolicy', END - 3 * DAY, { region: 'us-west-2' })];
+  const lookup = fakeLookup(rows, { disabled: ['af-south-1'] });
+  // eu-west-1 keeps failing in transit: the session's read returns null for it (after its own retries).
+  const read = async options => (options.region === 'eu-west-1' ? (lookup.calls.push(options), null) : lookup(options));
+  const found = await discoverAwsRegions({ read, identity: IDENTITY, end: END });
+  assert.deepEqual(found.probe.unread, ['eu-west-1'], 'a transient failure is reported, a refused Region is not');
+  assert.equal(found.probe.homeComplete, true);
+  assert.deepEqual(found.candidates.map(c => `${c.region}:${c.group}`).sort(), ['us-east-1:iam-access', 'us-west-2:s3']);
+});
+
+test('discovery probes only a few Regions at a time (no burst of dozens of requests)', async () => {
+  const lookup = fakeLookup([row('iam-access:CreateRole', END - DAY)]);
+  let inFlight = 0, peak = 0;
+  const read = async options => {
+    inFlight++; peak = Math.max(peak, inFlight);
+    await new Promise(resolve => setTimeout(resolve, 2));
+    try { return await lookup(options); } finally { inFlight--; }
+  };
+  const found = await discoverAwsRegions({ read, identity: IDENTITY, end: END });
+  // us-east-1's own lane plus at most AWS_DISCOVERY_REGION_CONCURRENCY probes.
+  assert.ok(peak <= AWS_DISCOVERY_REGION_CONCURRENCY + 1, String(peak));
+  assert.equal(found.probe.enabled, AWS_REGIONS.length);
 });
 
 test('discovery shares one time budget across Regions', async () => {

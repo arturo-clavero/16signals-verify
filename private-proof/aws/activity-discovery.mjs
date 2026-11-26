@@ -34,6 +34,8 @@ export const AWS_DISCOVERY_SLICES = Object.freeze([[0, 3], [3, 7], [7, 14], [14,
 export const AWS_DISCOVERY_MS = 50000;
 export const AWS_DISCOVERY_PAGES = 80;
 export const AWS_PAGE_ROWS = 50;
+/** Regions probed at the same time (each still paced on its own lane). */
+export const AWS_DISCOVERY_REGION_CONCURRENCY = 6;
 
 const fail = what => { throw new Error(`AWS_DISCOVERY_INVALID:${what}`); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
@@ -177,14 +179,14 @@ export async function discoverAwsActivity({ read, identity, end, region = AWS_RE
   };
   return {
     candidates: [...candidates.values()].filter(placeable).sort((a, b) => b.time - a.time || (a.eventId < b.eventId ? -1 : 1)),
-    region, times, coverage, requests, found: candidates.size,
+    region, times, coverage, requests, found: candidates.size, stoppedEarly: stopped,
     slices: slices.map(({ start, end: stop, pages, rows, done }) => ({ start, end: stop, pages, rows, complete: done })),
   };
 }
 
 /**
  * Discovery over every enabled Region. LookupEvents is regional (the 2 requests/s limit is per account and Region), so
- * Regions are read in parallel. us-east-1 (home of the global services) is read in slices from the start. Every other
+ * Regions are read in parallel (a few at a time, AWS_DISCOVERY_REGION_CONCURRENCY). us-east-1 (home of the global services) is read in slices from the start. Every other
  * Region gets a probe: one newest-first page over the whole 90 days. A Region whose probe holds every row needs nothing
  * more; one with more rows is read in slices only when the probe found candidate writes. A Region whose probe fails is
  * not enabled for this account (opt-in Regions) or not readable and is skipped; a failure in us-east-1 fails discovery
@@ -203,26 +205,37 @@ export async function discoverAwsRegions({ read, identity, end, regions = AWS_RE
   // Awaited after the other Regions; a failure here still fails discovery, without an unhandled rejection meanwhile.
   home.catch(() => {});
   const others = regions.filter(region => region !== AWS_REGION);
-  const sliced = [AWS_REGION];
-  const away = await Promise.all(others.map(async region => {
+  const sliced = [AWS_REGION], unread = [];
+  const discoverAway = async region => {
     let probe;
     try {
       probe = await read({ kind: 'discovery', region, userName, start: end - 90 * DAY, end });
     } catch {
+      // Refused (a Region not enabled for this account, or not readable): skipped as before.
       return undefined;
     }
-    if (probe === null) return undefined;
+    // Still failing in transit after the read's own retries: the Region is enabled but unread this run, and says so.
+    if (probe === null) { unread.push(region); return undefined; }
     const first = await discoverAwsActivity({ ...base, region, probe, maxPages: 0 });
     const left = timeMs - (now() - started);
     if (first.slices[0].complete || !first.found || left <= 0) return first;
     sliced.push(region);
     return discoverAwsActivity({ ...base, region, probe, maxPages, timeMs: left });
+  };
+  // A few Regions at a time rather than every probe at once: a burst of dozens of requests is what times out on a busy
+  // machine or a slow link. Each Region keeps its own 2 requests/s lane.
+  const away = new Array(others.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(AWS_DISCOVERY_REGION_CONCURRENCY, others.length) }, async () => {
+    while (next < others.length) { const index = next++; away[index] = await discoverAway(others[index]); }
   }));
-  const results = [await home, ...away.filter(Boolean)];
+  const homeResult = await home;
+  const results = [homeResult, ...away.filter(Boolean)];
   return {
     candidates: results.flatMap(result => result.candidates).sort((a, b) => b.time - a.time || (a.eventId < b.eventId ? -1 : 1)),
     regions: Object.fromEntries(results.map(result => [result.region, result])),
     requests: others.length + results.reduce((sum, result) => sum + result.requests, 0),
-    probe: { regions: regions.length, enabled: results.length, sliced: regions.filter(region => sliced.includes(region)) },
+    probe: { regions: regions.length, enabled: results.length, sliced: regions.filter(region => sliced.includes(region)),
+      unread: regions.filter(region => unread.includes(region)), homeComplete: homeResult.stoppedEarly !== true },
   };
 }
