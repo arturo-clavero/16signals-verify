@@ -27,14 +27,14 @@ Built on the [TLSNotary protocol](https://github.com/tlsnotary/tlsn) (the core M
 
 ## Clients
 
-This monorepo ships **two TLSNotary clients** that share one plugin system, one plugin registry ([`@tlsn/plugins`](packages/plugins)), and the same verifier server:
+This monorepo ships **two TLSNotary clients** that share one plugin system, one plugin registry ([`@tlsn/plugins`](../packages/plugins)), and the same verifier server:
 
 | Client                | Where                                      | Platforms               | Prover                                                                         |
 | --------------------- | ------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------ |
-| **Browser extension** | [`packages/extension`](packages/extension) | Chrome / Chromium (MV3) | WASM (`tlsn-wasm`) in an offscreen document                                    |
-| **Mobile app**        | [`app/mobile`](app/mobile)                 | iOS + Android           | Native Rust prover ([`packages/tlsn-mobile`](packages/tlsn-mobile)) via UniFFI |
+| **Browser extension** | [`packages/extension`](../packages/extension) | Chrome / Chromium (MV3) | WASM (`tlsn-wasm`) in an offscreen document                                    |
+| **Mobile app**        | [`app/mobile`](../app/mobile)                 | iOS + Android           | Native Rust prover ([`packages/tlsn-mobile`](../packages/tlsn-mobile)) via UniFFI |
 
-Both run the same JavaScript plugins (sandboxed in QuickJS WASM on the extension; evaluated with `new Function()` under Hermes on mobile), capture auth from a logged-in session, and produce selectively-disclosed proofs against a [verifier server](servers/verifier).
+Both run the same JavaScript plugins (sandboxed in QuickJS WASM on the extension; evaluated with `new Function()` under Hermes on mobile), capture auth from a logged-in session, and produce selectively-disclosed proofs against a [verifier server](../servers/verifier).
 
 ## Demo
 
@@ -60,7 +60,7 @@ npm run mobile:ios       # build deps + native libs + launch iOS
 npm run mobile:android   # build deps + native libs + launch Android
 ```
 
-The mobile app presents a plugin gallery (Swiss Bank, Spotify, Duolingo, Discord — work-in-progress plugins appear behind the Debug toggle), lets the user log in via an embedded WebView, and generates proofs with the native prover. See [`app/mobile/README.md`](app/mobile/README.md) for the full toolchain and build pipeline.
+The mobile app presents a plugin gallery (Swiss Bank, Spotify, Duolingo, Discord — work-in-progress plugins appear behind the Debug toggle), lets the user log in via an embedded WebView, and generates proofs with the native prover. See [`app/mobile/README.md`](../app/mobile/README.md) for the full toolchain and build pipeline.
 
 ### Environment Variables
 
@@ -79,11 +79,11 @@ npm run docker:up
 VITE_VERIFIER_HOST=verifier.example.com VITE_SSL=true docker compose up --build
 ```
 
-For the mobile app, point plugins at a remote verifier by rebuilding them with `MOBILE_VERIFIER_URL` (see [`app/mobile/README.md`](app/mobile/README.md#running-the-verifier)).
+For the mobile app, point plugins at a remote verifier by rebuilding them with `MOBILE_VERIFIER_URL` (see [`app/mobile/README.md`](../app/mobile/README.md#running-the-verifier)).
 
 ## Tutorial
 
-Want to write your own plugin? The [`tutorial`](packages/tutorial) package is an interactive 15-30 minute, hands-on walkthrough of building TLSNotary plugins — starting from a working Twitter plugin, then adapting it for a Swiss Bank balance proof (choosing what to reveal vs. redact). An optional "fool the verifier" challenge shows why careful server-side verification matters.
+Want to write your own plugin? The [`tutorial`](../packages/tutorial) package is an interactive 15-30 minute, hands-on walkthrough of building TLSNotary plugins — starting from a working Twitter plugin, then adapting it for a Swiss Bank balance proof (choosing what to reveal vs. redact). An optional "fool the verifier" challenge shows why careful server-side verification matters.
 
 ```bash
 npm run tutorial
@@ -143,10 +143,10 @@ Entry points: `Background` (service worker), `Content` (page injection + overlay
 React Native / Expo client with a native Rust prover. Key features:
 
 - **Plugin gallery**: Select a plugin, log in via embedded WebView, generate a proof
-- **Native prover**: Rust ([`packages/tlsn-mobile`](packages/tlsn-mobile)) bridged via UniFFI — Swift/XCFramework on iOS, Kotlin/`.so` on Android
+- **Native prover**: Rust ([`packages/tlsn-mobile`](../packages/tlsn-mobile)) bridged via UniFFI — Swift/XCFramework on iOS, Kotlin/`.so` on Android
 - **Plugin execution**: Plugin JS is evaluated with `new Function()` under Hermes via the plugin SDK's `NativeFunctionEvaluator` (a vendored native QuickJS module exists in `modules/quickjs-native` but is not currently in the plugin execution path)
 
-See [`app/mobile/README.md`](app/mobile/README.md) for prerequisites, the build pipeline, and architecture.
+See [`app/mobile/README.md`](../app/mobile/README.md) for prerequisites, the build pipeline, and architecture.
 
 #### `plugins` — Shared Plugins & Registry
 
@@ -191,7 +191,7 @@ React + Vite frontend (with Docker Compose: verifier + nginx) that drives the ex
 
 #### `eas-webhook` — Demo Attestation Service
 
-Receives verifier webhooks and creates [EAS](https://attest.sh/) attestations on Sepolia testnet. Demo-only; see [`packages/eas-webhook/README.md`](packages/eas-webhook/README.md).
+Receives verifier webhooks and creates [EAS](https://attest.sh/) attestations on Sepolia testnet. Demo-only; see [`packages/eas-webhook/README.md`](../packages/eas-webhook/README.md).
 
 #### `tlsn-wasm` — TLSN WebAssembly (local build helper)
 
@@ -273,7 +273,7 @@ Content Script → Update TLSN overlay UI
                    └──────────────┘
 ```
 
-See [`app/mobile/README.md`](app/mobile/README.md#architecture) for the full plugin flow and native-bridge details.
+See [`app/mobile/README.md`](../app/mobile/README.md#architecture) for the full plugin flow and native-bridge details.
 
 ## Getting Started
 
@@ -292,7 +292,7 @@ See [`app/mobile/README.md`](app/mobile/README.md#architecture) for the full plu
 - **Android**: Android Studio (SDK, emulator, JDK) and the **Android NDK**
 - Expo / EAS tooling (used via `npx`)
 
-Rust cross-compilation targets, `cargo-ndk`, and the `tlsn` repo are auto-installed by `app/mobile/build.sh`. See [`app/mobile/README.md`](app/mobile/README.md#prerequisites) for the full tables and environment setup.
+Rust cross-compilation targets, `cargo-ndk`, and the `tlsn` repo are auto-installed by `app/mobile/build.sh`. See [`app/mobile/README.md`](../app/mobile/README.md#prerequisites) for the full tables and environment setup.
 
 ### Installation
 
@@ -377,11 +377,11 @@ Notes:
 - The app uses native modules, so use `expo run:ios` / `expo run:android` (via `build.sh`) — **not** Expo Go.
 - Plugin code runs under Hermes, which can't parse `async/await` in dynamically-evaluated code; mobile plugins are compiled to `es2016`. If you see "async functions are unsupported", rebuild plugins: `npm run build:plugins`.
 
-See [`app/mobile/README.md`](app/mobile/README.md) for emulator clock sync, native logs, and troubleshooting.
+See [`app/mobile/README.md`](../app/mobile/README.md) for emulator clock sync, native logs, and troubleshooting.
 
 ### Building Plugins
 
-Plugins live in [`packages/plugins`](packages/plugins) and are built for both clients:
+Plugins live in [`packages/plugins`](../packages/plugins) and are built for both clients:
 
 ```bash
 npm run build:plugins   # writes dist/demo (browser) and dist/mobile (Hermes)
@@ -399,7 +399,7 @@ NODE_ENV=production npm run build
 
 This builds dependencies, builds the extension with production optimizations, and creates `packages/extension/zip/extension-{version}.zip` (ready for the Chrome Web Store).
 
-The easiest way to install the extension is from the [Chrome Web Store](https://chromewebstore.google.com/detail/tlsn-extension/gcfkkledipjbgdbimfpijgbkhajiaaph). For the full release process (versioning, CI, store upload), see [`RELEASING.md`](RELEASING.md).
+The easiest way to install the extension is from the [Chrome Web Store](https://chromewebstore.google.com/detail/tlsn-extension/gcfkkledipjbgdbimfpijgbkhajiaaph). For the full release process (versioning, CI, store upload), see [`RELEASING.md`](../RELEASING.md).
 
 ### Mobile → App Store & Play Store
 
@@ -411,7 +411,7 @@ npx eas-cli build  --profile production --platform all
 npx eas-cli submit --profile production --platform all
 ```
 
-For versioning (note the mobile-specific `0.1.AABB` scheme), credentials, and store promotion, see [`app/mobile/RELEASING.md`](app/mobile/RELEASING.md).
+For versioning (note the mobile-specific `0.1.AABB` scheme), credentials, and store promotion, see [`app/mobile/RELEASING.md`](../app/mobile/RELEASING.md).
 
 ### Build the Verifier for Production
 
@@ -467,7 +467,7 @@ This proxies HTTPS connections through WebSocket for browser-based TLS operation
 
 ## Building Plugins with Claude Code
 
-This repo includes a [Claude Code](https://claude.ai/claude-code) slash command that scaffolds TLSNotary plugins interactively — API discovery, auth interception strategy, and a complete plugin file added to [`packages/plugins`](packages/plugins) (usable by both clients).
+This repo includes a [Claude Code](https://claude.ai/claude-code) slash command that scaffolds TLSNotary plugins interactively — API discovery, auth interception strategy, and a complete plugin file added to [`packages/plugins`](../packages/plugins) (usable by both clients).
 
 ### Install
 
@@ -487,7 +487,7 @@ This repo includes a [Claude Code](https://claude.ai/claude-code) slash command 
 /create-plugin GitHub contribution count
 ```
 
-See [`PLUGIN.md`](PLUGIN.md) for the plugin architecture, capabilities, and authoring guide.
+See [`PLUGIN.md`](../PLUGIN.md) for the plugin architecture, capabilities, and authoring guide.
 
 ## Resources
 
