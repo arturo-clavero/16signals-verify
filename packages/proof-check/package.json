@@ -1,7 +1,7 @@
 {
   "name": "@tlsn-fork/proof-check",
   "version": "0.1.0",
-  "description": "Check signed attestations and public proof bundles of private TLSNotary proofs, with pluggable providers and registries",
+  "description": "Check signed attestations, public proof bundles and proof packages of private TLSNotary proofs, with pluggable providers and registries",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "exports": {
@@ -12,6 +12,7 @@
   },
   "files": [
     "*.mjs",
+    "package/*.mjs",
     "!*.test.mjs",
     "!test-fixtures",
     "README.md"
@@ -21,5 +22,8 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=1"
+  },
+  "optionalDependencies": {
+    "@aztec/bb.js": "4.2.0-aztecnr-rc.2"
   }
 }
