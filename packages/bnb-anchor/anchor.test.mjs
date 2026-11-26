@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import { encodeAbiParameters, encodeEventTopics, zeroHash } from 'viem';
-import { createAttestation, signAttestation, verifierKeyId } from '../proof-bundle/attestation.mjs';
-import { bundleCommitment } from '../proof-bundle/commitment.mjs';
+import { createAttestation, signAttestation, verifierKeyId } from '../proof-check/attestation.mjs';
+import { bundleCommitment } from '../proof-check/commitment.mjs';
 import { BAS_ABI, NETWORKS, SCHEMA_UID, anchorRequest, bnbRegistry, decodeAnchor, publishAnchor, readAnchor } from './anchor.mjs';
 import { verifyCommitment } from '../../verify/verify.mjs';
 

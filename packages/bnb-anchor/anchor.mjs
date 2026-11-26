@@ -1,7 +1,7 @@
 // Anchors signed attestations on BNB Chain through BAS and reads them back.
 import { decodeAbiParameters, encodeAbiParameters, encodePacked, keccak256, parseAbiParameters, zeroAddress, zeroHash } from 'viem';
-import { attestationShape } from '../proof-bundle/attestation.mjs';
-import { canonicalize } from '../proof-bundle/commitment.mjs';
+import { attestationShape } from '../proof-check/attestation.mjs';
+import { canonicalize } from '../proof-check/commitment.mjs';
 
 /** BAS deployments. */
 export const NETWORKS = Object.freeze({
