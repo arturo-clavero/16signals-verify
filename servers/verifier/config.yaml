@@ -2,6 +2,9 @@
 #
 # This file configures webhook endpoints that receive verification results.
 # Webhooks are triggered after successful MPC-TLS verification.
+# With an attestor key (TLSN_ATTESTOR_KEY / TLSN_ATTESTOR_KEY_FILE and
+# TLSN_ATTESTOR_KID, environment only) each payload also carries a signed
+# `receipt` and its `leaves`; see README.md, Signed receipts.
 
 webhooks:
   # Example: Twitter/X API webhook

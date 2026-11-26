@@ -511,3 +511,43 @@ async fn a_later_prove_request_over_the_ceiling_is_rejected_at_the_request() {
     assert!(freed(&v).await);
     assert_eq!(payloads(&v, 1).await.len(), 1);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_proof_gets_its_own_attestor_receipt() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    // TEST ONLY: a fixed, obviously fake Ed25519 seed (as attestor_test.rs). Never a deployed key.
+    let seed = [0x07u8; 32];
+    let x = ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key().to_bytes();
+    let jwk = format!(
+        r#"{{"kty":"OKP","crv":"Ed25519","x":"{}","d":"{}"}}"#,
+        URL_SAFE_NO_PAD.encode(x),
+        URL_SAFE_NO_PAD.encode(seed)
+    );
+    let attestor = crate::attestor::Attestor::from_values(Some(&jwk), Some("did:web:verifier.test.invalid#tlsn-attestor"))
+        .unwrap()
+        .unwrap();
+    let v = verifier(Settings {
+        attestor: Some(Arc::new(attestor)),
+        ..Settings::default()
+    })
+    .await;
+    let (mut ws, sid, _) = register(v.addr, true, json!({ "method": "TEST", "step": "P0", "proofId": "proof-1" })).await;
+    let (mut prover, handle) = committed_prover(v.addr, &sid).await;
+    let a = prove(&mut ws, &mut prover, &[(0, 14)], &[(0, 15), (20, 30)], true, None).await;
+    let b = prove(&mut ws, &mut prover, &[], &[(40, 50)], false, Some("P0w1")).await;
+    ws.send(Message::Text(json!({ "type": "finish" }).to_string().into())).await.unwrap();
+    prover.close().await.unwrap();
+    handle.close();
+    let got = payloads(&v, 2).await;
+    assert_eq!(got.len(), 2);
+    for (p, (reply, leaves)) in got.iter().zip([(a, 3usize), (b, 1usize)]) {
+        let jws = p["receipt"].as_str().expect("a receipt per proof");
+        let claims: Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(jws.split('.').nth(1).unwrap()).unwrap()).unwrap();
+        assert_eq!(claims["sessionId"], reply["resultId"], "bound to the proof's own result id");
+        assert_eq!(claims["proofId"], "proof-1");
+        assert_eq!(claims["leafCount"], leaves);
+        assert_eq!(p["leaves"].as_array().unwrap().len(), leaves);
+    }
+}

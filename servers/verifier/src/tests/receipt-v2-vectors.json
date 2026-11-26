@@ -1,0 +1,139 @@
+{
+  "name": "receipt-v2-reveal-and-commit-leaves",
+  "description": "Attestor receipt v2: reveal leaves SHA-256(0x00||dir||u64be(start)||u64be(len)||salt||bytes) over the verifier's raw transcript, commit leaves SHA-256(0x02||dir||u64be(start)||u64be(len)||salt||digest), nodes SHA-256(0x01||l||r), odd last node promoted. Salts and digests are fixed test values; the signing key is the fake test seed 0x07 x 32.",
+  "publicJwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iw",
+    "kid": "tlsn-attestor"
+  },
+  "kid": "did:web:verifier.test.invalid#tlsn-attestor",
+  "sentHex": "474554202f636c69656e742f76342f6163636f756e747320485454502f312e310d0a0000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "recvHex": "485454502f312e3120323030204f4b0d0a00000000000000000000000000000000000000000000000000000000000000000000007d5d2c2273756363657373223a747275657d",
+  "leaves": [
+    {
+      "index": 0,
+      "direction": "sent",
+      "start": 0,
+      "end": 34,
+      "kind": "reveal",
+      "salt": "cd36d0a50e37d4d27ca794b705fd6ab5735881d05eac46a648a206c40e36b7aa",
+      "bytesHex": "474554202f636c69656e742f76342f6163636f756e747320485454502f312e310d0a",
+      "leafPreimageHex": "000000000000000000000000000000000022cd36d0a50e37d4d27ca794b705fd6ab5735881d05eac46a648a206c40e36b7aa474554202f636c69656e742f76342f6163636f756e747320485454502f312e310d0a",
+      "leafHash": "06942be641e4b23e06c91e9cab6d44ffa4c7be092f1967154d026998751f4778"
+    },
+    {
+      "index": 1,
+      "direction": "sent",
+      "start": 34,
+      "end": 75,
+      "kind": "commit",
+      "salt": "b965e8a7c2405538d920b2cd99515fec4db2126f49ed7bc8f5a293079067d3f0",
+      "alg": "sha256",
+      "digest": "7c675482623a60c63c4baae23a79a11da890db61dacdb8bf794e58d5af31d5a9",
+      "leafPreimageHex": "020000000000000000220000000000000029b965e8a7c2405538d920b2cd99515fec4db2126f49ed7bc8f5a293079067d3f07c675482623a60c63c4baae23a79a11da890db61dacdb8bf794e58d5af31d5a9",
+      "leafHash": "c78b03736479ab34721ab332d8109f3ce5179baf1fb3be3f98b37c5cf98a36fa"
+    },
+    {
+      "index": 2,
+      "direction": "recv",
+      "start": 0,
+      "end": 17,
+      "kind": "reveal",
+      "salt": "c77827c2d28d0af421a5e6e02a1c2fb7e93ef3c1441487ae4aacede3c845348e",
+      "bytesHex": "485454502f312e3120323030204f4b0d0a",
+      "leafPreimageHex": "000100000000000000000000000000000011c77827c2d28d0af421a5e6e02a1c2fb7e93ef3c1441487ae4aacede3c845348e485454502f312e3120323030204f4b0d0a",
+      "leafHash": "74f7f28ebbc2de4b4ab9b8c23774e9da8d4238dc53720d391b138ab2f8717041"
+    },
+    {
+      "index": 3,
+      "direction": "recv",
+      "start": 34,
+      "end": 52,
+      "kind": "commit",
+      "salt": "d0d782c7bb15f9e8c15e4c8cf6dde2c75f1268cd0470ea20b312f2b68341ff73",
+      "alg": "blake3",
+      "digest": "fe9462b95e194e035b951919fab8f9d4613a2bbdc706b05da4def40be40e54e5",
+      "leafPreimageHex": "020100000000000000220000000000000012d0d782c7bb15f9e8c15e4c8cf6dde2c75f1268cd0470ea20b312f2b68341ff73fe9462b95e194e035b951919fab8f9d4613a2bbdc706b05da4def40be40e54e5",
+      "leafHash": "73d6d492a50118b52e70c32ac0aeca4f05f100bfe77edcca3d82d50f989488fa"
+    },
+    {
+      "index": 4,
+      "direction": "recv",
+      "start": 52,
+      "end": 70,
+      "kind": "reveal",
+      "salt": "8039837d26e5a68a89615f972b8ba9c12fb03405f4bda09f22348ddcc20d2b15",
+      "bytesHex": "7d5d2c2273756363657373223a747275657d",
+      "leafPreimageHex": "0001000000000000003400000000000000128039837d26e5a68a89615f972b8ba9c12fb03405f4bda09f22348ddcc20d2b157d5d2c2273756363657373223a747275657d",
+      "leafHash": "730038d274936482947cc52c5d87a6e969b9a59f84b9b5042d1328ee6166229b"
+    }
+  ],
+  "publishedLeaves": [
+    {
+      "direction": "sent",
+      "start": 0,
+      "end": 34,
+      "salt": "cd36d0a50e37d4d27ca794b705fd6ab5735881d05eac46a648a206c40e36b7aa",
+      "kind": "reveal"
+    },
+    {
+      "direction": "sent",
+      "start": 34,
+      "end": 75,
+      "salt": "b965e8a7c2405538d920b2cd99515fec4db2126f49ed7bc8f5a293079067d3f0",
+      "kind": "commit",
+      "alg": "sha256",
+      "digest": "7c675482623a60c63c4baae23a79a11da890db61dacdb8bf794e58d5af31d5a9"
+    },
+    {
+      "direction": "recv",
+      "start": 0,
+      "end": 17,
+      "salt": "c77827c2d28d0af421a5e6e02a1c2fb7e93ef3c1441487ae4aacede3c845348e",
+      "kind": "reveal"
+    },
+    {
+      "direction": "recv",
+      "start": 34,
+      "end": 52,
+      "salt": "d0d782c7bb15f9e8c15e4c8cf6dde2c75f1268cd0470ea20b312f2b68341ff73",
+      "kind": "commit",
+      "alg": "blake3",
+      "digest": "fe9462b95e194e035b951919fab8f9d4613a2bbdc706b05da4def40be40e54e5"
+    },
+    {
+      "direction": "recv",
+      "start": 52,
+      "end": 70,
+      "salt": "8039837d26e5a68a89615f972b8ba9c12fb03405f4bda09f22348ddcc20d2b15",
+      "kind": "reveal"
+    }
+  ],
+  "levels": [
+    [
+      "06942be641e4b23e06c91e9cab6d44ffa4c7be092f1967154d026998751f4778",
+      "c78b03736479ab34721ab332d8109f3ce5179baf1fb3be3f98b37c5cf98a36fa",
+      "74f7f28ebbc2de4b4ab9b8c23774e9da8d4238dc53720d391b138ab2f8717041",
+      "73d6d492a50118b52e70c32ac0aeca4f05f100bfe77edcca3d82d50f989488fa",
+      "730038d274936482947cc52c5d87a6e969b9a59f84b9b5042d1328ee6166229b"
+    ],
+    [
+      "527c5c54762468bfc5c60d56c1633beaa6aa6f1bc01f2aee7af2fccb820fa328",
+      "ada6f43b62beaedfdb85f05685afe899c6f086d635ae120b3cb958abf40b3e5c",
+      "730038d274936482947cc52c5d87a6e969b9a59f84b9b5042d1328ee6166229b"
+    ],
+    [
+      "a55f27d375a2e87eb251eff061b4c6272dbdca2450ffd92d94aea9426af7841f",
+      "730038d274936482947cc52c5d87a6e969b9a59f84b9b5042d1328ee6166229b"
+    ],
+    [
+      "1b880332ce18123cdd04e8bcc270bf749f2fbef6ac3997ddaa8b5b0c662b0405"
+    ]
+  ],
+  "root": "1b880332ce18123cdd04e8bcc270bf749f2fbef6ac3997ddaa8b5b0c662b0405",
+  "leafCount": 5,
+  "header": "{\"alg\":\"EdDSA\",\"kid\":\"did:web:verifier.test.invalid#tlsn-attestor\",\"typ\":\"tlsn-receipt+jws\"}",
+  "payload": "{\"v\":2,\"serverName\":\"api.cloudflare.com\",\"sessionId\":\"0b8e8f0e-0000-4000-8000-000000000023\",\"proofId\":\"3f2b8c1e-5d4a-4c3b-9a1f-000000000023\",\"verifiedAt\":\"2026-11-26T12:00:00.000Z\",\"tlsnVersion\":\"0.1.0-alpha.15\",\"root\":\"1b880332ce18123cdd04e8bcc270bf749f2fbef6ac3997ddaa8b5b0c662b0405\",\"leafCount\":5}",
+  "receipt": "eyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDp3ZWI6dmVyaWZpZXIudGVzdC5pbnZhbGlkI3Rsc24tYXR0ZXN0b3IiLCJ0eXAiOiJ0bHNuLXJlY2VpcHQrandzIn0.eyJ2IjoyLCJzZXJ2ZXJOYW1lIjoiYXBpLmNsb3VkZmxhcmUuY29tIiwic2Vzc2lvbklkIjoiMGI4ZThmMGUtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDIzIiwicHJvb2ZJZCI6IjNmMmI4YzFlLTVkNGEtNGMzYi05YTFmLTAwMDAwMDAwMDAyMyIsInZlcmlmaWVkQXQiOiIyMDI2LTExLTI2VDEyOjAwOjAwLjAwMFoiLCJ0bHNuVmVyc2lvbiI6IjAuMS4wLWFscGhhLjE1Iiwicm9vdCI6IjFiODgwMzMyY2UxODEyM2NkZDA0ZThiY2MyNzBiZjc0OWYyZmJlZjZhYzM5OTdkZGFhOGI1YjBjNjYyYjA0MDUiLCJsZWFmQ291bnQiOjV9.51Ana7MzWQuXAWpQLvCxLs5hmslozPT0sZssHZloAF9uS16JQ78oQH2mOcBBf-DDtyx-iYcdRpRi7QJVu0r_DQ"
+}

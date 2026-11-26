@@ -38,6 +38,9 @@ pub(crate) struct Settings {
     /// `None` = no memory budget (upstream behaviour, tests; `from_env` when the
     /// variable is unset and the container has no memory limit).
     pub(crate) memory_budget: Option<Arc<crate::admission::MemoryBudget>>,
+    /// Receipt signer (`TLSN_ATTESTOR_KEY` or `TLSN_ATTESTOR_KEY_FILE`, plus
+    /// `TLSN_ATTESTOR_KID`, `attestor.rs`). `None`: no receipts.
+    pub(crate) attestor: Option<Arc<crate::attestor::Attestor>>,
     /// Tests only: the address a Proxy-mode session dials instead of
     /// `<host>:443` (a local TLS fixture).
     #[cfg(test)]
@@ -71,6 +74,7 @@ impl Default for Settings {
             max_sent_data: None,
             max_reveal_blocks: usize::MAX,
             memory_budget: None,
+            attestor: None,
             #[cfg(test)]
             test_dial: None,
             #[cfg(test)]
@@ -116,6 +120,11 @@ impl Settings {
             max_reveal_blocks,
             memory_budget: budget_mb
                 .map(|mb| crate::admission::MemoryBudget::new(mb, crate::admission::QUEUE_WAIT)),
+            // A key that is set but malformed stops the server (the message
+            // names the problem, never the key).
+            attestor: crate::attestor::Attestor::from_env()
+                .unwrap_or_else(|e| panic!("{e}"))
+                .map(Arc::new),
             ..Self::default()
         }
     }

@@ -23,6 +23,10 @@ futures-util = "0.3"
 # Cryptography
 sha1 = "0.10"
 base64 = "0.22"
+# Attestor receipts: Ed25519 JWS signature, SHA-256 Merkle leaves, CSPRNG salts.
+ed25519-dalek = "2.1"
+sha2 = "0.10"
+getrandom = "0.2"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -49,7 +53,6 @@ bytes = "1"
 [dev-dependencies]
 # The pinned core's public TLS test credentials, for the in-process Proxy tests.
 tlsn-server-fixture-certs = { path = "../../core/tlsn/crates/server-fixture/certs" }
-sha2 = "0.10"
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["tokio", "http1"] }
