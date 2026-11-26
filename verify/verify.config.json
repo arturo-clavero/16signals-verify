@@ -1,0 +1,11 @@
+{
+  "providers": [
+    "../private-proof/gcp/descriptor.mjs",
+    "../private-proof/aws/descriptor.mjs",
+    "../private-proof/cloudflare/descriptor.mjs"
+  ],
+  "registries": [
+    { "type": "bnb", "module": "../packages/bnb-anchor/anchor.mjs", "network": "bsc-testnet" }
+  ],
+  "keys": "./keys.json"
+}

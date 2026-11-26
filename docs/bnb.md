@@ -46,8 +46,9 @@ gains nothing: it fails the signature check.
 ## Reading
 
 `verify/?uid=0x…` (or the UID field on the page). In code, `bnbRegistry({ uid, client })` from
-[`packages/bnb-anchor/anchor.mjs`](../packages/bnb-anchor/anchor.mjs) plugs into `verifyCommitment` in
-[`verify/verify.mjs`](../verify/verify.mjs). `readAnchor` rejects records of another schema, revoked records, and
+[`packages/bnb-anchor/anchor.mjs`](../packages/bnb-anchor/anchor.mjs) is a registry for `verifyCommitment` in
+[`packages/proof-check`](../packages/proof-check); the verify page enables the UID lookup through the `bnb` entry in
+`verify/verify.config.json`. `readAnchor` rejects records of another schema, revoked records, and
 records whose indexed fields disagree with the signed attestation they carry.
 
 ## Trade-offs

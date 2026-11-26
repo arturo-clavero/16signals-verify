@@ -160,14 +160,18 @@ do this themselves and use the repository root as build context.
 
 | Package | Role |
 | --- | --- |
-| [`packages/proof-check`](../packages/proof-check) | Canonical JSON, the bundle commitment, Ed25519 attestations, and the adapter from a verified GCP, AWS or Cloudflare bundle to commitment fields |
+| [`packages/proof-check`](../packages/proof-check) | Canonical JSON, the bundle commitment, Ed25519 attestations, commitment fields for a verified bundle, and the checks the verify page and the `proof-check` CLI run. Providers, registries and trusted keys are plugged in; see its [README](../packages/proof-check/README.md) |
+| [`packages/bnb-anchor`](../packages/bnb-anchor) | Anchoring attestations on BNB Smart Chain, and a registry that reads them back |
 
-`packages/proof-check` is a plain ES module (Node 22+ and current browsers), with no build step.
+`packages/proof-check` is a plain ES module (Node 22+ and current browsers), with no build step. It imports nothing
+provider-specific: each `private-proof/<provider>/descriptor.mjs` supplies its pinned keys, its claim (from a verified
+result and from the public inputs) and its headline.
 
 ### Verify page (`verify/`)
 
-A static page that checks a dropped JSON file (a signed attestation, optionally with the public bundle) in the viewer's browser. See
-[verification.md](verification.md).
+A static page that checks a dropped JSON file (a signed attestation, optionally with the public bundle) in the viewer's browser.
+`verify/verify.config.json` lists its providers, registries and keys; `mountVerify(el, config)` in `verify/page.mjs`
+embeds it in another page. See [verification.md](verification.md).
 
 ## Data flow of a cloud private proof
 
@@ -207,8 +211,8 @@ and the blinded commitments. It never sees the private values or the blinders.
 account). Their public inputs include the blinded hashes, the lengths of hidden values and the time cutoff.
 
 **Learned by the relying party.** The coarse claim only. For GCP it is `gcp:observed:<groups>` with a 7, 30 or 90-day
-window, for example `gcp:observed:g1,g4`. For AWS it is one of, with a 90-day window (`claimOf` in
-[`cloud.mjs`](../packages/proof-check/cloud.mjs)):
+window, for example `gcp:observed:g1,g4`. For AWS it is one of, with a 90-day window (`claimFromResult` in
+[`private-proof/aws/descriptor.mjs`](../private-proof/aws/descriptor.mjs)):
 
 - `aws:activity:<operation ids>:iam-user`, for example `aws:activity:iam-role-trust-update,security-group-ingress:iam-user`;
 - `aws:areas:<positions>:iam-user`, 1-based skill-area positions, when the operation names exceed 128 bytes;
@@ -313,8 +317,9 @@ packages/plugin-sdk/  plugin SDK (upstream + fork changes)
 private-proof/gcp/    GCP circuits, client plan, browser prover, bundle verifier
 private-proof/aws/    AWS circuits, client plan, browser prover, bundle verifier
 private-proof/cloudflare/  Cloudflare circuits, session plan, browser prover, bundle verifier
-packages/proof-check/   commitment and attestations
-verify/               static verify page and keys.json
+packages/proof-check/ commitment, attestations, checks and the proof-check CLI
+packages/bnb-anchor/  BNB Smart Chain anchoring
+verify/               static verify page, verify.config.json and keys.json
 servers/verifier/     upstream TLSNotary verifier server
 docs/                 this documentation
 ```

@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import { encodeAbiParameters, encodeEventTopics, zeroHash } from 'viem';
-import { createAttestation, signAttestation, verifierKeyId } from '../proof-bundle/attestation.mjs';
-import { bundleCommitment } from '../proof-bundle/commitment.mjs';
+import { createAttestation, signAttestation, verifierKeyId } from '../proof-check/attestation.mjs';
+import { bundleCommitment } from '../proof-check/commitment.mjs';
 import { BAS_ABI, NETWORKS, SCHEMA_UID, anchorRequest, bnbRegistry, decodeAnchor, publishAnchor, readAnchor } from './anchor.mjs';
-import { verifyCommitment } from '../../verify/verify.mjs';
+import { verifyCommitment } from '../proof-check/index.mjs';
 
 const { privateKey, publicKey } = generateKeyPairSync('ed25519');
 const pem = { privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }), publicKey: publicKey.export({ type: 'spki', format: 'pem' }) };
@@ -44,12 +44,13 @@ test('reading rejects other schemas, revoked records and fields that disagree wi
   await assert.rejects(readAnchor({ uid: 'nope', client: chain() }), /uid/);
 });
 
-test('the verify page logic checks an anchored attestation end to end', async () => {
-  const registry = bnbRegistry({ uid: UID, client: chain(), now: NOW });
-  const result = await verifyCommitment({ commitment: signed.commitment, keys, registry, loadJson: async () => undefined, now: NOW });
+test('the registry plugs into proof-check and an anchored attestation checks end to end', async () => {
+  const registries = [bnbRegistry({ uid: UID, client: chain(), now: NOW })];
+  const providers = [{ id: 'cloudflare' }];
+  const result = await verifyCommitment({ commitment: signed.commitment, keys, providers, registries, now: NOW });
   assert.equal(result.status, 'signature-only');
   assert.equal(result.claim, fields.claim);
-  const other = await verifyCommitment({ commitment: 'f'.repeat(64), keys, registry, loadJson: async () => undefined, now: NOW });
+  const other = await verifyCommitment({ commitment: 'f'.repeat(64), keys, providers, registries, now: NOW });
   assert.equal(other.status, 'not-found');
 });
 

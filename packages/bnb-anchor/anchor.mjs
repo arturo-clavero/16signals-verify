@@ -1,7 +1,7 @@
 // Anchors signed attestations on BNB Chain through BAS and reads them back.
 import { decodeAbiParameters, encodeAbiParameters, encodePacked, keccak256, parseAbiParameters, zeroAddress, zeroHash } from 'viem';
-import { attestationShape } from '../proof-bundle/attestation.mjs';
-import { canonicalize } from '../proof-bundle/commitment.mjs';
+import { attestationShape } from '../proof-check/attestation.mjs';
+import { canonicalize } from '../proof-check/commitment.mjs';
 
 /** BAS deployments. */
 export const NETWORKS = Object.freeze({
@@ -84,7 +84,7 @@ export async function readAnchor({ uid, client, network = 'bsc-testnet', now }) 
   return decodeAnchor(record, { now });
 }
 
-/** Registry for verifyCommitment backed by one BAS UID. */
+/** A proof-check Registry ({ findAttestations, findBundle }) backed by one BAS UID; `anchor()` returns the decoded record. */
 export function bnbRegistry({ uid, client, network, now }) {
   let anchor;
   const load = async () => (anchor ??= await readAnchor({ uid, client, network, now }));

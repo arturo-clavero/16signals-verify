@@ -102,15 +102,16 @@ Pinned artifact hashes are checked by `artifact-registry.mjs`; rebuild artifacts
 { attribution: 'cloudflare-user', windowDays: 90, observations: [{ group, ... }] }
 ```
 
-[`packages/proof-check/cloud.mjs`](../../packages/proof-check/cloud.mjs) (`claimOf`) turns it into the public claim, which
+[`descriptor.mjs`](descriptor.mjs) (`claimFromResult`) turns it into the public claim, which
 admits only lowercase words, digits and separators:
 
 | Claim | Meaning |
 | --- | --- |
 | `cloudflare:groups:<positions>:user` | 1-based positions in `CLOUDFLARE_SKILL_GROUPS`, e.g. `cloudflare:groups:1,3:user` |
 
-The window is always 90 days. [`verify/verify.mjs`](../../verify/verify.mjs) accepts the same format and shows the group
-labels. Like the AWS page-run claims, it is checked for format only there.
+The window is always 90 days. The same descriptor gives the headline with the group labels for
+[`packages/proof-check`](../../packages/proof-check) and the verify page. Like the AWS page-run claims, it is checked
+for format and known positions only.
 
 ## Tests
 

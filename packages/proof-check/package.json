@@ -1,15 +1,20 @@
 {
   "name": "@tlsn-fork/proof-check",
   "version": "0.1.0",
-  "description": "Canonical commitment and signed attestation for a private TLSNotary proof bundle",
+  "description": "Check signed attestations and public proof bundles of private TLSNotary proofs, with pluggable providers and registries",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "exports": {
     ".": "./index.mjs"
   },
+  "bin": {
+    "proof-check": "./cli.mjs"
+  },
   "files": [
     "*.mjs",
-    "!*.test.mjs"
+    "!*.test.mjs",
+    "!test-fixtures",
+    "README.md"
   ],
   "engines": {
     "node": ">=22"

@@ -105,7 +105,7 @@ Pinned artifact hashes are checked by `artifact-registry.mjs`; rebuild artifacts
 { attribution: 'iam-user', windowDays: 90, observations: [{ group, eventSource, ... }] } // page runs
 ```
 
-[`packages/proof-check/cloud.mjs`](../../packages/proof-check/cloud.mjs) (`claimOf`) turns the result into the public claim.
+[`descriptor.mjs`](descriptor.mjs) (`claimFromResult`) turns the result into the public claim.
 Claims admit only lowercase words, digits and separators:
 
 | Claim | Used for |
@@ -115,7 +115,8 @@ Claims admit only lowercase words, digits and separators:
 | `aws:groups:<positions>:iam-user` | page runs; 1-based skill-group positions in display order |
 | `aws:iam-role-trust-update:iam-user` | legacy single-activity form, still accepted |
 
-All claims carry a 90-day window. [`verify/verify.mjs`](../../verify/verify.mjs) accepts the same formats.
+All claims carry a 90-day window. The same descriptor checks them against the public inputs (`claim`) and gives their
+headline (`describe`) for [`packages/proof-check`](../../packages/proof-check) and the verify page.
 
 ## Tests
 

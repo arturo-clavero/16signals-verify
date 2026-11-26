@@ -17,17 +17,29 @@ lookup to add its checks, otherwise the result is signature-only. See [BNB Chain
 
 The page:
 
-1. loads [`verify/keys.json`](../verify/keys.json), the verifier keys it accepts;
+1. loads [`verify/verify.config.json`](../verify/verify.config.json): the provider descriptors, the BNB registry and
+   [`verify/keys.json`](../verify/keys.json), the verifier keys it accepts;
 2. reads the signed attestation, and the public bundle if present, from the dropped file;
 3. runs the checks below in the viewer's browser and shows the result.
 
-All checks live in [`verify/verify.mjs`](../verify/verify.mjs) (no DOM, no network; tested in Node).
+All checks live in [`packages/proof-check/check.mjs`](../packages/proof-check/check.mjs) (no DOM, no network; tested
+in Node). Provider-specific parts (pinned keys, recomputing the claim, the headline) come from each
+`private-proof/<provider>/descriptor.mjs`. An attestation for a provider with no descriptor does not verify. The same
+checks run from the command line:
+
+```sh
+node packages/proof-check/cli.mjs evidence.json [--bundle bundle.json] [--keys keys.json]
+```
+
+It prints one line per check and exits 0 when all pass, 1 when one fails, 2 on bad input. See the
+[package README](../packages/proof-check/README.md) to plug in other providers, registries or keys.
 
 ## What each check means
 
 | Check | What it establishes |
 | --- | --- |
 | Signed by a listed verifier key, unexpired, and the commitment recomputes from its fields | A verifier you accept signed exactly this claim, proof hash and pins, and the attestation has not expired |
+| The provider is one these checks support | Shown only when it fails: the attestation names a provider with no descriptor, so nothing else about it can be checked |
 | Published proof bundle hashes to the signed proof hash | The bundle in the file is the one the signer saw |
 | Verification keys are the ones pinned in this repository | The proofs were made for these circuits, with these keys, and no others |
 | Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private); Cloudflare claims (`cloudflare:groups:<positions>:user`) are checked for format and known skill-group positions |
@@ -82,10 +94,11 @@ by editing this file.
 
 The page is static, but it imports files from outside `verify/`, so serve the **repository root**:
 
-- `verify/` (page, `keys.json`);
-- `packages/proof-check/`;
-- `private-proof/gcp/policy.mjs`, `private-proof/gcp/generated/` and `private-proof/aws/generated/`, `private-proof/cloudflare/generated/` and `private-proof/cloudflare/skill-groups.mjs` (pinned keys and
-  the GCP batch layout).
+- `verify/` (page, `verify.config.json`, `keys.json`);
+- `packages/proof-check/` and `packages/bnb-anchor/`;
+- each `private-proof/<provider>/descriptor.mjs` listed in the config and the files it imports: the provider's
+  `generated/` pins, `private-proof/gcp/policy.mjs` (the GCP batch layout), and the AWS and Cloudflare catalogs
+  (`operation-catalog.mjs`, `skill-groups.mjs`).
 
 Locally:
 
