@@ -1,4 +1,4 @@
-// Bundled into the extension (src/cloudflare-private/browser-client.mjs) by gcp-private-proof/build-browser.mjs.
+// Bundled into the extension (src/cloudflare-private/browser-client.mjs) by private-proof/gcp/build-browser.mjs.
 import { readCloudLink, saveCloudLink } from '../gcp/browser-link.mjs';
 import { createCloudflarePrivateClient } from './client.mjs';
 import { cloudflareProofFields, sanitizeCloudflarePrivateResult } from './verify-bundle.mjs';

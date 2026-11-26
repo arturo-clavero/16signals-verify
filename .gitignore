@@ -24,6 +24,7 @@ fork/config.env
 packages/extension/src/gcp-private/*.mjs
 packages/extension/src/gcp-private/generated/
 packages/extension/src/aws-private/*.mjs
+packages/extension/src/cloudflare-private/*.mjs
 # Pinned TLSNotary core for the native verifier (core/prepare-core.sh)
 core/tlsn/
 core/tlsn.prepare.lock

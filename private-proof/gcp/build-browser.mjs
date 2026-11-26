@@ -10,7 +10,7 @@ const require = createRequire(resolve(process.argv[2], 'package.json'));
 const webpack = require('webpack');
 const provider = process.argv[3] ?? 'gcp';
 assert.ok(['gcp', 'aws', 'cloudflare'].includes(provider), 'Unknown private proof package.');
-const directory = fileURLToPath(new URL(provider === 'gcp' ? '.' : `../${provider}-private-proof/`, import.meta.url));
+const directory = fileURLToPath(new URL(provider === 'gcp' ? '.' : `../${provider}/`, import.meta.url));
 const output = resolve(directory, 'dist/browser');
 const compiler = webpack({
   mode: 'production', target: 'webworker', devtool: false,
