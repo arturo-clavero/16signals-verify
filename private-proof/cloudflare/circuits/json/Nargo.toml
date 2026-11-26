@@ -1,0 +1,7 @@
+[package]
+name = "cf_private_json_pieces"
+type = "bin"
+
+[dependencies]
+cf_private_json = { path = "../lib" }
+gcp_private_json = { path = "../../../gcp/circuits/lib" }

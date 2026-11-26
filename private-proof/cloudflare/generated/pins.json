@@ -1,0 +1,71 @@
+{
+  "compiler": "1.0.0-beta.19+74d6be658e1ad252f87943292ba09bdd4da80bd4",
+  "backend": "4.2.0-aztecnr-rc.2",
+  "verifierTarget": "noir-recursive",
+  "circuits": {
+    "header-v1": {
+      "file": "header-v1-29bc0c9cb807a7ffee3c3d09f527394e957ec55971da154a8b4a8e6b09b16beb.json",
+      "sha256": "29bc0c9cb807a7ffee3c3d09f527394e957ec55971da154a8b4a8e6b09b16beb",
+      "bytes": 848779,
+      "keyFile": "header-v1-4be5de7d7ccac19e0127b2417e93b13b68d9518403f7f0e435bcdc26a18a9a5c.vk",
+      "keySha256": "4be5de7d7ccac19e0127b2417e93b13b68d9518403f7f0e435bcdc26a18a9a5c",
+      "keyBytes": 3680
+    },
+    "headers-small-v1": {
+      "file": "headers-small-v1-7128186d7c08f3883405704d59caf494f0c7f38c056114636da0eafa07628655.json",
+      "sha256": "7128186d7c08f3883405704d59caf494f0c7f38c056114636da0eafa07628655",
+      "bytes": 426970,
+      "keyFile": "headers-small-v1-310a4fa7be2bc8b67e902b9cafb043543c2dd83eb0ceaa5d6f27fe14eae562f4.vk",
+      "keySha256": "310a4fa7be2bc8b67e902b9cafb043543c2dd83eb0ceaa5d6f27fe14eae562f4",
+      "keyBytes": 3680
+    },
+    "cf-json-small-v1": {
+      "file": "cf-json-small-v1-8f3965de8ca9c6e352fac0ff58b3018a39baf3aff4780ee705f984b0f3c334ba.json",
+      "sha256": "8f3965de8ca9c6e352fac0ff58b3018a39baf3aff4780ee705f984b0f3c334ba",
+      "bytes": 1821011,
+      "keyFile": "cf-json-small-v1-96144660963559460e4c55c74e67da1b89725e127b89183cf079a3275c69e7c8.vk",
+      "keySha256": "96144660963559460e4c55c74e67da1b89725e127b89183cf079a3275c69e7c8",
+      "keyBytes": 3680
+    },
+    "cf-json-v1": {
+      "file": "cf-json-v1-e3486f6f0ac597d895f620ea211aec27e22fff8a661cdaa69e642da0c68af3e4.json",
+      "sha256": "e3486f6f0ac597d895f620ea211aec27e22fff8a661cdaa69e642da0c68af3e4",
+      "bytes": 3486804,
+      "keyFile": "cf-json-v1-c6335cfb8226aa83b9fd712c215901397f06fb8c40b2ad1c8473d1d246777cc7.vk",
+      "keySha256": "c6335cfb8226aa83b9fd712c215901397f06fb8c40b2ad1c8473d1d246777cc7",
+      "keyBytes": 3680
+    },
+    "cf-json-wide-v1": {
+      "file": "cf-json-wide-v1-7358f72af0fb917ff93c3465e7aa062aba1c3e6a6fa6e5af0f6d939c02e9c359.json",
+      "sha256": "7358f72af0fb917ff93c3465e7aa062aba1c3e6a6fa6e5af0f6d939c02e9c359",
+      "bytes": 7800977,
+      "keyFile": "cf-json-wide-v1-d6ea8920ad5cd99138ee5fa836978800b716a53a26adb1fa1944aca1b9140220.vk",
+      "keySha256": "d6ea8920ad5cd99138ee5fa836978800b716a53a26adb1fa1944aca1b9140220",
+      "keyBytes": 3680
+    },
+    "cf-actor-v1": {
+      "file": "cf-actor-v1-17a67d9e942122ca76252da35242129d1c42310fb428d3365916ae1459adab52.json",
+      "sha256": "17a67d9e942122ca76252da35242129d1c42310fb428d3365916ae1459adab52",
+      "bytes": 140336,
+      "keyFile": "cf-actor-v1-769fb883fcf639642e6c8ebb42213a55ccd33aab6277b8f4417c722e31b0fee1.vk",
+      "keySha256": "769fb883fcf639642e6c8ebb42213a55ccd33aab6277b8f4417c722e31b0fee1",
+      "keyBytes": 3680
+    },
+    "cf-headers-v1": {
+      "file": "cf-headers-v1-6c292ffb9c42560e3de8d993282f4a16c9c816e8d69afae4574fced3d4b82d26.json",
+      "sha256": "6c292ffb9c42560e3de8d993282f4a16c9c816e8d69afae4574fced3d4b82d26",
+      "bytes": 692008,
+      "keyFile": "cf-headers-v1-47688240bf08a06bd96afdb5c4ff9580a3e1d5a62517f9f64cb94b44f5f84963.vk",
+      "keySha256": "47688240bf08a06bd96afdb5c4ff9580a3e1d5a62517f9f64cb94b44f5f84963",
+      "keyBytes": 3680
+    },
+    "cf-identity-refresh-v1": {
+      "file": "cf-identity-refresh-v1-170ccacbc095635ed6676b87b392c462be9c8a6ea12beb7eff9278ceeecd5525.json",
+      "sha256": "170ccacbc095635ed6676b87b392c462be9c8a6ea12beb7eff9278ceeecd5525",
+      "bytes": 31377,
+      "keyFile": "cf-identity-refresh-v1-ee590b5d4f426dbbcfc8a34638bed1082bf949b84830ee01948a749dbf599f60.vk",
+      "keySha256": "ee590b5d4f426dbbcfc8a34638bed1082bf949b84830ee01948a749dbf599f60",
+      "keyBytes": 3680
+    }
+  }
+}

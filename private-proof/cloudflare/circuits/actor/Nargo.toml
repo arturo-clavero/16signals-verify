@@ -1,0 +1,6 @@
+[package]
+name = "cf_private_actor"
+type = "bin"
+
+[dependencies]
+gcp_private_json = { path = "../../../gcp/circuits/lib" }
