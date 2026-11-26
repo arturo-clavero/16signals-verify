@@ -2,6 +2,7 @@ import { parseHttpStructure } from '../gcp/http-structure.mjs';
 import { parseJsonStructure } from '../gcp/json-structure.mjs';
 import { inspectAwsIdentityDirections } from './identity-structure.mjs';
 import { inspectAwsEventDirections } from './event-structure.mjs';
+import { AWS_SESSION_STEPS } from './sessions.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const ZERO = '0'.repeat(64);
@@ -9,7 +10,7 @@ const fail = () => { throw new Error('AWS_PRIVATE_CLIENT_INVALID'); };
 const child = (node, key) => node?.entries?.find(entry => entry.key.value === key)?.value;
 const ascii = bytes => Uint8Array.from(bytes, byte => byte > 127 ? 63 : byte);
 
-function localHttp(bytes, kind) {
+export function localHttp(bytes, kind) {
   if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 16384) fail();
   const shadow = ascii(bytes);
   let message;
@@ -24,7 +25,7 @@ function localHttp(bytes, kind) {
 export function planAwsSession(meta, transcripts) {
   const buffers = [];
   try {
-    if (!meta || !['identity', 'E0', 'E1', 'E2'].includes(meta.step) || !/^[A-Za-z0-9_-]{43}$/.test(meta.nonceMac ?? '') ||
+    if (!meta || !AWS_SESSION_STEPS.includes(meta.step) || !/^[A-Za-z0-9_-]{43}$/.test(meta.nonceMac ?? '') ||
         meta.serverName !== (meta.step === 'identity' ? 'iam.amazonaws.com' : 'cloudtrail.us-east-1.amazonaws.com')) fail();
     const identity = meta.step === 'identity';
     const sent = localHttp(transcripts.sent, 'request'); buffers.push(sent.body.bytes);

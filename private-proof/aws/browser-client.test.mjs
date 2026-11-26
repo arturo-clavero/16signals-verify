@@ -6,6 +6,7 @@ import { createAwsPrivateModule } from './browser-client.mjs';
 import { identityFixture } from './identity-fixture.mjs';
 import { eventFixture, fixtureNow, syntheticWitness } from './event-fixture.mjs';
 import { loadAwsArtifacts } from './artifact-registry.mjs';
+import { awsToolClass } from './tool-class.mjs';
 
 const artifacts = await loadAwsArtifacts(file => readFile(new URL(`./dist/artifacts/${file}`, import.meta.url)));
 const workerUrl = 'chrome-extension://private-extension/aws-private/browser-worker.js';
@@ -17,8 +18,9 @@ function entry({ circuitId, inputs }) {
   const fields = abi.parameters.filter(p => p.visibility === 'public').flatMap(p => [inputs[p.name]].flat(Infinity));
   if (abi.return_type) {
     const bytes = inputs.decoded_preimage ?? inputs.preimage, length = inputs.decoded_length ?? inputs.length;
-    const value = JSON.parse(Buffer.from(bytes.slice(0, length)).toString());
-    fields.push(value === null ? 5 : value === false ? 4 : value === true ? 3 : typeof value === 'number' ? 2 : 1);
+    const text = Buffer.from(bytes.slice(0, length)).toString(), value = JSON.parse(text);
+    fields.push(circuitId === 'aws-user-agent-class-v1' ? awsToolClass(text)
+      : value === null ? 5 : value === false ? 4 : value === true ? 3 : typeof value === 'number' ? 2 : 1);
   }
   return { circuitId, proof: 'AA==', publicInputs: fields.map(String) };
 }
@@ -59,15 +61,15 @@ test('starts one packaged worker lazily, proves serially, and terminates on comp
     sentRangesWithHandlers: witness.selections.sent, recvRangesWithHandlers: witness.selections.recv });
   assert.equal(instances.length, 0);
   const bundle = await module.prove(witnesses, new AbortController().signal);
-  assert.equal(bundle.proofs.length, 10);
+  assert.equal(bundle.proofs.length, 11);
   assert.equal(instances.length, 1);
   assert.equal(instances[0].url, workerUrl);
   assert.deepEqual(instances[0].options, { type: 'module' });
   assert.equal(instances[0].terminated, true);
-  assert.equal(instances[0].messages.length, 10);
-  assert.equal(new Set(instances[0].messages.map(message => message.id)).size, 10);
+  assert.equal(instances[0].messages.length, 11);
+  assert.equal(new Set(instances[0].messages.map(message => message.id)).size, 11);
   assert(instances[0].messages.every(message => Object.keys(message).sort().join(',') === 'circuitId,id,inputs'));
-  assert.deepEqual(progress, Array.from({ length: 11 }, (_, completedProofs) => ({ completedProofs })));
+  assert.deepEqual(progress, Array.from({ length: 12 }, (_, completedProofs) => ({ completedProofs })));
   assert.throws(() => module.getRevealPlan(witnesses[0], witnesses[0]), failure);
 });
 

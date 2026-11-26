@@ -18,7 +18,7 @@ self.onmessage = async ({ data }) => {
   }
   busy = true;
   try {
-    runtime ??= await createAwsProofRuntime(await loadAwsArtifacts(packaged), await loadAwsVerificationKeys(packaged));
+    runtime ??= await createAwsProofRuntime(await loadAwsArtifacts(packaged), await loadAwsVerificationKeys(packaged), { forProving: true });
     const entry = await runtime.prove(data.circuitId, data.inputs);
     self.postMessage({ id, ok: true, entry });
   } catch {

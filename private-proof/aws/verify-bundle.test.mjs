@@ -21,7 +21,7 @@ function fixture(large = false) {
     inspectAwsEventSession(event.receipt, event.expected, event.claims, fixtureNow), identity.expected.issuedAt);
   const bundle = { kind: 'AWS_PRIVATE_RESULT', version: 1, sessionIds: sessions.map(session => session.expected.sessionId),
     proofs: expectations.map(({ circuitId, publicInputs }) => ({ circuitId,
-      proof: Buffer.from('synthetic test double only').toString('base64'), publicInputs: publicInputs.map(String) })) };
+      proof: Buffer.from('synthetic test double only').toString('base64'), publicInputs: publicInputs.map(value => String(value ?? 0)) })) };
   const calls = [];
   const runtime = { verify: async (proof, expected) => {
     calls.push(proof.circuitId);
@@ -34,11 +34,28 @@ const rejects = value => assert.rejects(verifyAwsBundle(value), /AWS_PRIVATE_BUN
 
 test('reconstructs every obligation and returns only the approved fixed claim', async () => {
   const value = fixture();
-  assert.deepEqual(await verifyAwsBundle(value), { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90 });
+  assert.deepEqual(await verifyAwsBundle(value), { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
   assert.equal(value.calls.length, value.bundle.proofs.length);
   assert.deepEqual(value.calls.slice(0, 2), ['aws-identity-link-v1', 'aws-event-link-v1']);
   assert.ok(value.calls.includes('aws-xml-text-v1') && value.calls.includes('aws-escaped-atoms-small-v1'));
   assert.doesNotMatch(JSON.stringify(value.bundle), /AWS_PRIVATE_USER_SENTINEL|111122223333|AIDAEXAMPLESYNTHETIC01|openings|preimage/);
+});
+
+test('reports the proven tool class per activity and rejects class ids outside the table', async () => {
+  const classProof = value => value.bundle.proofs.find(proof => proof.circuitId === 'aws-user-agent-class-v1');
+  for (const [id, tools] of [['1', { 'iam-role-trust-update': 'console' }], ['3', { 'iam-role-trust-update': 'terraform' }], ['0', {}]]) {
+    const value = fixture(); classProof(value).publicInputs[33] = id;
+    assert.deepEqual((await verifyAwsBundle(value)).tools, tools);
+  }
+  for (const id of ['5', '255']) {
+    const value = fixture(); classProof(value).publicInputs[33] = id; await rejects(value);
+  }
+  // A proof for another class does not verify against the claimed output.
+  const value = fixture(); classProof(value).publicInputs[33] = '2';
+  value.runtime.verify = async (proof, expected) => proof.circuitId !== 'aws-user-agent-class-v1' || expected[33] === 4;
+  await rejects(value);
+  // The class proof must open this event's decoded userAgent commitment.
+  const moved = fixture(); classProof(moved).publicInputs[0] = String(BigInt(classProof(moved).publicInputs[0]) ^ 1n); await rejects(moved);
 });
 
 test('requires affirmative cryptographic verification for every individual obligation', async () => {
@@ -77,7 +94,7 @@ test('rejects transplanted native ranges and forged decoded atom commitments', a
 
 test('batches small values and retains complete large-value fallback obligations', async () => {
   const value = fixture(true);
-  assert.deepEqual(await verifyAwsBundle(value), { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90 });
+  assert.deepEqual(await verifyAwsBundle(value), { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
   for (const id of ['header-v1', 'atom-v1', 'aws-escaped-atom-v1', 'headers-small-v1', 'atoms-small-v1', 'aws-escaped-atoms-small-v1']) {
     assert.ok(value.calls.includes(id), id);
   }
@@ -157,3 +174,13 @@ test('completion sanitizer owns all public arrays and rejects private extras', (
   expected.proofs[0].privateWitness = 'PRIVATE_SENTINEL';
   assert.throws(() => sanitizeAwsPrivateResult(expected), /AWS_PRIVATE_BUNDLE_INVALID/);
 });
+
+test('historical demo verification uses original policy time without relaxing live expiry', async () => {
+  const value = fixture();
+  await assert.rejects(verifyAwsBundle({ ...value, now: fixtureNow + 86400000 }), /AWS_PRIVATE_BUNDLE_INVALID/);
+  assert.equal(value.calls.length, 0);
+  assert.deepEqual(await verifyAwsBundle({ ...value, now: value.sessions[0].expected.issuedAt }),
+    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
+  assert.equal(value.calls.length, value.bundle.proofs.length);
+});
+

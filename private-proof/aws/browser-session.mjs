@@ -1,12 +1,25 @@
-import { buildAwsRequest, AWS_EVENT_ID, AWS_LIMITS } from './request.mjs';
+import { buildAwsRequest, awsCloudTrailRegion, AWS_EVENT_ID, AWS_LIMITS, AWS_REGION } from './request.mjs';
 import { parseAwsIdentity } from './console-session.mjs';
 import { validateAwsAttempt } from './authenticated-transcript.mjs';
-import { AWS_ACTIVITY_PROFILES } from './activity-policy.mjs';
+import { AWS_OPERATIONS, AWS_SKILL_AREAS, AWS_RESOURCE_NAME, awsOperation } from './operation-catalog.mjs';
+import { AWS_MAX_EVENT_SESSIONS, AWS_MAX_PAGE_SESSIONS, AWS_PAGE_STEPS } from './sessions.mjs';
+import { discoverAwsRegions } from './activity-discovery.mjs';
+import { rankAwsActivity, packAwsSessions } from './activity-selection.mjs';
+import { AWS_PAGE_ROW_CAP } from './page-plan.mjs';
 import { parseJsonStructure } from '../gcp/json-structure.mjs';
 import { planAwsSession } from './client-plan.mjs';
 
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
-const fail = () => { throw new Error('AWS_PRIVATE_COLLECTION_FAILED'); };
+// `stage` is a fixed diagnostic code (never a value) that the extension logs; the message stays the same for callers.
+/**
+ * Page runs: discovery reads (at most `pages`, started within `ms`), the proof budget in rows and the page sessions.
+ * Budget and caps follow measured proving speed: about 5 s per row and 45-50 s per page session on 12 cores (a live run
+ * of 3 sessions and 16 rows took 341 s; 5 sessions and 25 rows come to about 8 minutes).
+ */
+export const AWS_PAGE_RUN = Object.freeze({ pages: 45, ms: 50000, budget: 25, rowCap: AWS_PAGE_ROW_CAP, sessions: AWS_MAX_PAGE_SESSIONS });
+// readAwsPrivateResponse stages of a discovery read that failed in transit rather than being refused.
+const DISCOVERY_TRANSIENT = /^(?:NETWORK|READ|STATUS_5\d\d|LOOKUP_REFUSED_400)$/;
+const fail = stage => { throw Object.assign(new Error('AWS_PRIVATE_COLLECTION_FAILED'), stage ? { stage } : {}); };
 const exact = (value, keys) => value && typeof value === 'object' && !Array.isArray(value) &&
   Reflect.ownKeys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 const hex = bytes => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
@@ -32,22 +45,17 @@ export function awsPrivateCredentials(value, now = Date.now()) {
 /** Fixed SigV4 read-request grammar, signed with the browser's WebCrypto. */
 export async function signAwsPrivateRequest(options, credentials, { nonceMac, now = Date.now() }) {
   const keys = options?.kind === 'identity' ? ['kind'] : options?.kind === 'event' ? ['kind', 'eventId'] :
-    ['kind', 'start', 'end', ...(options?.eventName === undefined ? [] : ['eventName']), ...(options?.nextToken === undefined ? [] : ['nextToken'])];
-  if (!exact(options, keys) || !['identity', 'event', 'discovery'].includes(options.kind) ||
+    ['kind', 'userName', 'start', 'end', ...(options?.region === undefined ? [] : ['region']), ...(options?.nextToken === undefined ? [] : ['nextToken'])];
+  if (!exact(options, keys) || !['identity', 'event', 'discovery', 'page'].includes(options.kind) ||
       !/^[A-Za-z0-9_-]{43}$/.test(nonceMac ?? '')) fail();
-  const eventName = options.eventName ?? 'UpdateAssumeRolePolicy';
-  if (options.kind === 'discovery' && !AWS_ACTIVITY_PROFILES.some(profile => profile.operations.includes(eventName))) fail();
   const copy = awsPrivateCredentials(credentials, now);
-  const request = buildAwsRequest({ ...options, identityService: 'iam', source: 'iam.amazonaws.com' });
-  // shortcut: one event per discovery page fits the existing 16 KiB private parser; widen only with a reviewed profile.
-  if (options.kind === 'discovery') request.body = JSON.stringify({ ...JSON.parse(request.body), MaxResults: 1,
-    LookupAttributes: [{ AttributeKey: 'EventName', AttributeValue: eventName }] });
-  const service = options.kind === 'identity' ? 'iam' : 'cloudtrail';
+  const request = buildAwsRequest({ ...options, identityService: 'iam' });
+  const service = options.kind === 'identity' ? 'iam' : 'cloudtrail', region = options.kind === 'identity' ? AWS_REGION : awsCloudTrailRegion(new URL(request.url).hostname) ?? fail();
   const date = new Date(now).toISOString().replace(/[:-]|\.\d{3}/g, '');
   const headers = { ...request.headers, host: new URL(request.url).hostname, 'x-amz-date': date,
     'x-amz-security-token': copy.sessionToken, 'x-16signals-nonce': nonceMac };
   const names = Object.keys(headers).sort(), signedHeaders = names.join(';');
-  const scope = `${date.slice(0, 8)}/us-east-1/${service}/aws4_request`;
+  const scope = `${date.slice(0, 8)}/${region}/${service}/aws4_request`;
   let key = encoder.encode(`AWS4${copy.secretAccessKey}`);
   const hmac = async text => {
     const imported = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -55,7 +63,7 @@ export async function signAwsPrivateRequest(options, credentials, { nonceMac, no
   };
   try {
     const canonical = ['POST', '/', '', names.map(name => `${name}:${headers[name]}\n`).join(''), signedHeaders, await hash(request.body)].join('\n');
-    for (const part of [date.slice(0, 8), 'us-east-1', service, 'aws4_request']) {
+    for (const part of [date.slice(0, 8), region, service, 'aws4_request']) {
       const next = await hmac(part); key.fill(0); key = next;
     }
     const signature = await hmac(`AWS4-HMAC-SHA256\n${date}\n${scope}\n${await hash(canonical)}`);
@@ -67,25 +75,32 @@ export async function signAwsPrivateRequest(options, credentials, { nonceMac, no
 
 /** Bounded, cancellable browser fetch. No error body, redirect or cookie leaves this caller. */
 export async function readAwsPrivateResponse(url, options, { fetchAws = fetch, signal, limit = 16384 } = {}) {
-  let reader, activityAccessRequired = false;
+  let reader, activityAccessRequired = false, stage = 'NETWORK';
   const chunks = [];
   try {
     const response = await fetchAws(url, { ...options, redirect: 'error', cache: 'no-store',
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
+    stage = 'NO_BODY';
     if (!response.body) fail();
     reader = response.body.getReader();
+    stage = 'REDIRECT';
     if (response.redirected) fail();
-    const deniedLookup = [400, 403].includes(response.status) && url === 'https://cloudtrail.us-east-1.amazonaws.com/' &&
+    const deniedLookup = [400, 403].includes(response.status) && /^https:\/\/[a-z0-9.-]+\/$/.test(url) &&
+      awsCloudTrailRegion(new URL(url).hostname) !== null &&
       options?.headers?.['x-amz-target'] === 'com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101.LookupEvents';
+    stage = `STATUS_${Number.isInteger(response.status) ? response.status : 0}`;
     if (response.status !== 200 && !deniedLookup) fail();
+    stage = 'READ';
     let length = 0;
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
       chunks.push(value); length += value.byteLength;
-      if (length > limit) fail();
+      if (length > limit) { stage = 'TOO_LARGE'; fail(); }
     }
+    stage = 'ABORTED';
     if (signal?.aborted) fail();
+    stage = 'DECODE';
     const bytes = new Uint8Array(length);
     try {
       let offset = 0;
@@ -94,23 +109,28 @@ export async function readAwsPrivateResponse(url, options, { fetchAws = fetch, s
       if (deniedLookup) {
         const type = json(text)?.__type;
         activityAccessRequired = typeof type === 'string' && /^(?:[A-Za-z0-9_.]+#)?AccessDenied(?:Exception)?$/.test(type);
+        stage = `LOOKUP_REFUSED_${response.status}`;
         fail();
       }
       return text;
     } finally { bytes.fill(0); }
   } catch {
     if (activityAccessRequired) throw new Error('AWS_ACTIVITY_ACCESS_REQUIRED');
-    fail();
+    fail(stage);
   }
   finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); for (const chunk of chunks) chunk.fill(0); }
 }
 
-/** Local selection is provisional: only the native transcripts and their ZK bundle establish a claim. */
-export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.now }) {
+/**
+ * Local selection is provisional: only the native transcripts and their ZK bundle establish a claim.
+ * `pages` (default): discover, rank and pack the user's writes into page sessions (P0..); otherwise one session per
+ * selected event (E0..), the earlier flow.
+ */
+export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.now, identityOnly = false, pages = true }) {
   validateAwsAttempt(attempt, now());
   attempt = { ...attempt };
   const controller = new AbortController();
-  let credentials, used = false, closed = false;
+  let credentials, used = false, closed = false, pageRows;
   const clear = () => {
     closed = true; controller.abort(); clearTimeout(timer);
     if (credentials) for (const key of Object.keys(credentials)) credentials[key] = '';
@@ -124,72 +144,138 @@ export function createAwsLocalSession({ attempt, fetchAws = fetch, now = Date.no
   };
   return {
     clear,
+    /** After prepare() of a page run: the event ids each page session proves ({ P0: [...], ... }), else undefined. */
+    pageRows: () => (pageRows ? structuredClone(pageRows) : undefined),
     async prepare(capture) {
+      let phase = 'CHECK';
       try {
         check(); if (used) fail(); used = true;
         const accountId = capture?.accountId;
+        phase = 'CREDENTIALS';
         credentials = awsPrivateCredentials(capture?.credentials, now());
-        if (Date.parse(credentials.expiration) <= attempt.expiresAt ||
-            (accountId !== undefined && !/^\d{12}$/.test(accountId))) fail();
-        let calls = 0;
-        const read = async options => {
-          if (calls++ >= AWS_LIMITS.attempts) fail();
-          if (calls > 1) await new Promise((resolve, reject) => {
-            const abort = () => { clearTimeout(pause); reject(new Error('AWS_PRIVATE_COLLECTION_FAILED')); };
-            const pause = setTimeout(() => { controller.signal.removeEventListener('abort', abort); resolve(); }, AWS_LIMITS.intervalMs);
-            controller.signal.addEventListener('abort', abort, { once: true });
-            if (controller.signal.aborted) abort();
-          });
-          const request = await sign(options);
-          const body = await readAwsPrivateResponse(request.url, { method: request.method, headers: request.headers, body: request.body, credentials: 'omit' },
-            { fetchAws, signal: controller.signal });
-          check(); return body;
+        phase = 'CREDENTIALS_EXPIRE_BEFORE_ATTEMPT';
+        if (Date.parse(credentials.expiration) <= attempt.expiresAt) fail();
+        phase = 'ACCOUNT_ID';
+        if (accountId !== undefined && !/^\d{12}$/.test(accountId)) fail();
+        // LookupEvents allows 2 requests/s per account and Region: each Region (and IAM) is its own paced lane with
+        // its own call cap, and lanes run in parallel.
+        const lanes = new Map();
+        const pause = () => new Promise((resolve, reject) => {
+          const abort = () => { clearTimeout(timer); reject(new Error('AWS_PRIVATE_COLLECTION_FAILED')); };
+          const timer = setTimeout(() => { controller.signal.removeEventListener('abort', abort); resolve(); }, AWS_LIMITS.intervalMs);
+          controller.signal.addEventListener('abort', abort, { once: true });
+          if (controller.signal.aborted) abort();
+        });
+        const read = (options, limit) => {
+          const name = options.kind === 'identity' ? 'iam' : options.region ?? AWS_REGION;
+          const lane = lanes.get(name) ?? { calls: 0, last: undefined };
+          lanes.set(name, lane);
+          if (lane.calls++ >= AWS_LIMITS.attempts) fail();
+          const previous = lane.last;
+          const call = (async () => {
+            if (previous) { await previous.catch(() => {}); await pause(); }
+            const request = await sign(options);
+            const body = await readAwsPrivateResponse(request.url, { method: request.method, headers: request.headers, body: request.body, credentials: 'omit' },
+              { fetchAws, signal: controller.signal, limit });
+            check(); return body;
+          })();
+          lane.last = call;
+          return call;
         };
-        const identity = parseAwsIdentity(await read({ kind: 'identity' }), 'iam');
+        phase = 'IDENTITY_FETCH';
+        const identityBody = await read({ kind: 'identity' });
+        phase = 'IDENTITY_PARSE';
+        const identity = parseAwsIdentity(identityBody, 'iam');
+        phase = 'IDENTITY_ACCOUNT';
         if (accountId !== undefined && accountId !== identity.accountId) fail();
-        const end = Math.floor(attempt.issuedAt / 1000), start = end - 90 * 86400, selected = [];
-        const pagesPerFamily = Math.floor((AWS_LIMITS.attempts - 1) / AWS_ACTIVITY_PROFILES.length);
-        for (const profile of AWS_ACTIVITY_PROFILES) {
-          const tokens = new Set();
-          let nextToken, match, pages = 0;
-          do {
-            const page = json(await read({ kind: 'discovery', eventName: profile.operations[0], start, end, ...(nextToken ? { nextToken } : {}) }));
-            pages++;
-            if (!exact(page, ['Events', ...(page.NextToken === undefined ? [] : ['NextToken'])]) ||
-                !Array.isArray(page.Events) || page.Events.length > 1) fail();
-            for (const row of page.Events) {
-              if (!row || typeof row.CloudTrailEvent !== 'string') fail();
-              const event = json(row.CloudTrailEvent), actor = event.userIdentity;
-              if (!profile.operations.includes(event.eventName) || event.eventSource !== profile.source ||
-                  actor?.type !== 'IAMUser' || actor.principalId !== identity.principalId || actor.arn !== identity.arn ||
-                  actor.accountId !== identity.accountId || event.recipientAccountId !== identity.accountId) continue;
-              const time = Date.parse(event.eventTime);
-              if (!AWS_EVENT_ID.test(row.EventId ?? '') || row.EventId !== event.eventID ||
-                  !Number.isFinite(time) || time < attempt.issuedAt - 90 * 86400000 || time > attempt.issuedAt ||
-                  typeof row.EventTime !== 'number' || Math.abs(row.EventTime * 1000 - time) > 1) continue;
-              const request = await sign({ kind: 'event', eventId: row.EventId });
-              const body = JSON.stringify({ Events: [row] });
-              const sent = encoder.encode(`POST / HTTP/1.1\r\n${Object.entries(request.headers).map(([key, value]) => `${key}: ${value}\r\n`).join('')}content-length: ${encoder.encode(request.body).length}\r\n\r\n${request.body}`);
-              const recv = encoder.encode(`HTTP/1.1 200 OK\r\ncontent-type: application/x-amz-json-1.1\r\ncontent-length: ${encoder.encode(body).length}\r\n\r\n${body}`);
-              try { planAwsSession({ step: 'E0', serverName: 'cloudtrail.us-east-1.amazonaws.com', nonceMac: attempt.nonceMac }, { sent, recv }); match = row.EventId; }
-              catch { /* Unsupported or failed events remain unavailable. */ }
-              finally { sent.fill(0); recv.fill(0); }
-            }
-            nextToken = page.NextToken;
-            if (nextToken !== undefined && (typeof nextToken !== 'string' || !nextToken || nextToken.length > 8192 || tokens.has(nextToken))) fail();
-            if (nextToken) tokens.add(nextToken);
-          } while (!match && nextToken && pages < pagesPerFamily);
-          if (match) selected.push(match);
-          // shortcut: leave room for discovery/native work in the existing proof window; revisit after measured capacity improves.
-          if (selected.length === 2) break;
+        if (identityOnly) { const request = await sign({ kind: 'identity' }); check(); return [request]; }
+        if (pages) {
+          // Local and unproven: never sent to 16signals. Only the page sessions' transcripts and proofs make a claim.
+          phase = 'DISCOVERY';
+          const end = Math.floor(attempt.issuedAt / 1000), userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1);
+          let discoveryReads = 0;
+          const discoveryRead = async options => {
+            try { return await read(options, AWS_LIMITS.discoveryBytes); } catch (error) {
+              // After the first page, a read that fails in transit (timeout, dropped connection, AWS 5xx or throttling)
+              // ends discovery with the pages read so far. The first read, refused access and a closed session still fail.
+              if (discoveryReads && !closed && DISCOVERY_TRANSIENT.test(error?.stage ?? '')) return null;
+              throw error;
+            } finally { discoveryReads++; }
+          };
+          const discovery = await discoverAwsRegions({ read: discoveryRead, identity, end,
+            maxPages: AWS_PAGE_RUN.pages, timeMs: AWS_PAGE_RUN.ms, now });
+          phase = 'SELECTION';
+          // The job's skill groups (server attempt state) weigh the choice and the session order; they never limit it.
+          const jobGroups = Array.isArray(attempt.jobGroups) ? attempt.jobGroups : [];
+          const ranking = rankAwsActivity(discovery.candidates, { budget: AWS_PAGE_RUN.budget, jobGroups, discovery });
+          const { sessions } = packAwsSessions(ranking.picks, discovery, { rowCap: AWS_PAGE_RUN.rowCap, jobGroups, maxSessions: AWS_PAGE_RUN.sessions });
+          phase = 'NO_EVENTS';
+          if (!sessions.length) fail();
+          phase = 'SIGN';
+          const requests = [await sign({ kind: 'identity' })];
+          for (const session of sessions) requests.push(await sign({ kind: 'page', region: session.region, userName, start: session.start, end: session.end }));
+          pageRows = Object.fromEntries(sessions.map((session, index) => [AWS_PAGE_STEPS[index], [...session.eventIds]]));
+          check(); return requests;
         }
+        // One local, unproven Username query: never sent to 16signals. Each selected row is proven later in its own
+        // session, fetched again by EventId; only rows whose single-event response passes the session planner count.
+        const end = Math.floor(attempt.issuedAt / 1000), start = end - 90 * 86400;
+        const userName = identity.arn.slice(identity.arn.lastIndexOf('/') + 1), best = new Map(), tokens = new Set();
+        // Selection: one event per skill area, preferring the area's earlier catalog operation, then the newest event
+        // (LookupEvents pages are newest first). Areas follow catalog order up to the session cap.
+        const areas = AWS_SKILL_AREAS.map(area => area.id).filter(id => AWS_OPERATIONS.some(profile => profile.skillArea === id));
+        const first = id => AWS_OPERATIONS.findIndex(profile => profile.skillArea === id);
+        const settled = () => areas.slice(0, AWS_MAX_EVENT_SESSIONS).every(id => best.get(id)?.rank === first(id));
+        let nextToken, pagesRead = 0;
+        do {
+          phase = 'DISCOVERY_FETCH';
+          const text = await read({ kind: 'discovery', userName, start, end, ...(nextToken ? { nextToken } : {}) }, AWS_LIMITS.discoveryBytes);
+          phase = 'DISCOVERY_PAGE';
+          let page;
+          try { page = JSON.parse(text); } catch { fail(); }
+          pagesRead++;
+          if (!exact(page, ['Events', ...(page?.NextToken === undefined ? [] : ['NextToken'])]) ||
+              !Array.isArray(page.Events) || page.Events.length > AWS_LIMITS.pageSize) fail();
+          for (const row of page.Events) {
+            if (!row || typeof row.CloudTrailEvent !== 'string') fail();
+            let event;
+            try { event = JSON.parse(row.CloudTrailEvent); } catch { continue; }
+            const profile = awsOperation(event?.eventSource, event?.eventName), rank = AWS_OPERATIONS.indexOf(profile);
+            if (!profile || (best.get(profile.skillArea)?.rank ?? Infinity) <= rank) continue;
+            const actor = event.userIdentity, resource = event.requestParameters?.[profile.resource];
+            if (event.readOnly !== false || event.errorCode !== undefined || event.errorMessage !== undefined ||
+                actor?.type !== 'IAMUser' || actor.principalId !== identity.principalId || actor.arn !== identity.arn ||
+                actor.accountId !== identity.accountId || event.recipientAccountId !== identity.accountId ||
+                typeof resource !== 'string' || !AWS_RESOURCE_NAME.pattern.test(resource) ||
+                resource.length + 2 < AWS_RESOURCE_NAME.minBytes || resource.length + 2 > AWS_RESOURCE_NAME.maxBytes) continue;
+            const time = Date.parse(event.eventTime);
+            if (!AWS_EVENT_ID.test(row.EventId ?? '') || row.EventId !== event.eventID ||
+                !Number.isFinite(time) || time < attempt.issuedAt - 90 * 86400000 || time > attempt.issuedAt ||
+                typeof row.EventTime !== 'number' || Math.abs(row.EventTime * 1000 - time) > 1) continue;
+            const request = await sign({ kind: 'event', eventId: row.EventId });
+            const body = JSON.stringify({ Events: [row] });
+            const sent = encoder.encode(`POST / HTTP/1.1\r\n${Object.entries(request.headers).map(([key, value]) => `${key}: ${value}\r\n`).join('')}content-length: ${encoder.encode(request.body).length}\r\n\r\n${request.body}`);
+            const recv = encoder.encode(`HTTP/1.1 200 OK\r\ncontent-type: application/x-amz-json-1.1\r\ncontent-length: ${encoder.encode(body).length}\r\n\r\n${body}`);
+            try {
+              planAwsSession({ step: 'E0', serverName: 'cloudtrail.us-east-1.amazonaws.com', nonceMac: attempt.nonceMac }, { sent, recv });
+              best.set(profile.skillArea, { rank, eventId: row.EventId });
+            } catch { /* Unsupported or failed events remain unavailable. */ }
+            finally { sent.fill(0); recv.fill(0); }
+          }
+          nextToken = page.NextToken;
+          if (nextToken !== undefined && (typeof nextToken !== 'string' || !nextToken || nextToken.length > 8192 || tokens.has(nextToken))) fail();
+          if (nextToken) tokens.add(nextToken);
+        } while (nextToken && pagesRead < AWS_LIMITS.discoveryPages && !settled());
+        const selected = areas.filter(id => best.has(id)).slice(0, AWS_MAX_EVENT_SESSIONS).map(id => best.get(id).eventId);
+        phase = 'NO_EVENTS';
         if (!selected.length) fail();
+        phase = 'SIGN';
         const requests = [await sign({ kind: 'identity' })];
         for (const eventId of selected) requests.push(await sign({ kind: 'event', eventId }));
         check(); return requests;
       } catch (error) {
         if (error instanceof Error && error.message === 'AWS_ACTIVITY_ACCESS_REQUIRED') throw new Error('AWS_ACTIVITY_ACCESS_REQUIRED');
-        fail();
+        fail(typeof error?.stage === 'string' ? `${phase}_${error.stage}` : phase);
       }
       finally { clear(); }
     },

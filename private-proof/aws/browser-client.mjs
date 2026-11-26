@@ -1,7 +1,10 @@
+import { readCloudLink, saveCloudLink } from '../gcp/browser-link.mjs';
+export { readCloudLink };
 import { createAwsPrivateClient } from './client.mjs';
 import { awsProofFields, sanitizeAwsPrivateResult } from './verify-bundle.mjs';
 export { sanitizeAwsPrivateResult } from './verify-bundle.mjs';
-export { validateAwsAttempt } from './authenticated-transcript.mjs';
+export { validateAwsAttempt, awsSessionHost } from './authenticated-transcript.mjs';
+export { AWS_SESSION_STEPS, AWS_PAGE_STEPS, awsCollectedSteps } from './sessions.mjs';
 export { createAwsLocalSession, awsPrivateCredentials, readAwsPrivateResponse } from './browser-session.mjs';
 export { awsConsoleSession } from './console-session.mjs';
 
@@ -10,7 +13,7 @@ const exact = (value, keys) => value !== null && typeof value === 'object' && !A
   Reflect.ownKeys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
 
 /** Constructed by the pinned offscreen runner, never by page messages. */
-export function createAwsPrivateModule({ attempt, workerUrl, onProgress }) {
+export function createAwsPrivateModule({ attempt, workerUrl, onProgress, fastSource, linkSecret }) {
   let url;
   try {
     const location = new URL(globalThis.location.href);
@@ -54,14 +57,16 @@ export function createAwsPrivateModule({ attempt, workerUrl, onProgress }) {
       } catch { terminate(); reject(error()); }
     });
   };
-  const local = createAwsPrivateClient({ attempt, proveCircuit });
+  const local = createAwsPrivateClient({ attempt, proveCircuit, fastSource, linkSecret, saveLink: (binding, secret) => saveCloudLink('aws', binding, secret) });
   const expiresAt = attempt.expiresAt;
   attempt = undefined;
-  const clear = () => { closed = true; clearTimeout(deadline); controller?.abort(); terminate(); local.clear(); };
+  const clear = () => { linkSecret?.fill(0); closed = true; clearTimeout(deadline); controller?.abort(); terminate(); local.clear(); };
   // Expiry must stop a hung CPU worker, not merely reject its eventual result.
   deadline = setTimeout(clear, Math.max(0, expiresAt - Date.now()));
   return {
+    fastCheck: !!fastSource,
     getRevealPlan: (...args) => { if (closed) throw error(); return local.getRevealPlan(...args); },
+    selectPages: rows => { if (closed) throw error(); local.selectPages(rows); },
     clear,
     async prove(witnesses, signal) {
       if (closed || controller || !signal || signal.aborted) { clear(); throw error(); }

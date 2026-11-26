@@ -7,18 +7,20 @@ import { groupedFixture } from './grouped-fixture.mjs';
 import { eventFixture, fixtureNow, syntheticWitness } from './event-fixture.mjs';
 import { createAwsPrivateClient } from './client.mjs';
 import { loadAwsArtifacts } from './artifact-registry.mjs';
-import { verifyAwsBundle } from './verify-bundle.mjs';
+import { verifyAwsBundle, verifyAwsFastBundle, awsFastSource } from './verify-bundle.mjs';
+import { awsToolClass } from './tool-class.mjs';
 
 const artifacts = await loadAwsArtifacts(file => readFile(new URL(`./dist/artifacts/${file}`, import.meta.url)));
 const error = { message: 'AWS_PRIVATE_CLIENT_INVALID' };
 const flat = value => Array.isArray(value) ? value.flat(Infinity) : [value];
 const zero = value => value && typeof value === 'object' ? Object.values(value).every(zero) : value === 0;
-function fixture(options = {}, families) {
+function fixture(options = {}, families, { eventIds, mutateRequest, userAgent } = {}) {
   let fixtures;
-  if (families) fixtures = groupedFixture(families);
+  if (families) fixtures = groupedFixture(families, eventIds);
   else {
-    const event = eventFixture({ mutateEvent: value => {
+    const event = eventFixture({ mutateRequest, mutateEvent: value => {
       value.userIdentity.arn = 'arn:aws:iam::111122223333:user/engineering/AWS_PRIVATE_USER_SENTINEL';
+      if (userAgent !== undefined) value.userAgent = userAgent;
     } });
     event.expected.sessionId = '33333333-3333-4333-8333-333333333333'; event.receipt.session.id = event.expected.sessionId;
     fixtures = [identityFixture(), event];
@@ -34,8 +36,9 @@ function fixture(options = {}, families) {
     const values = abi.parameters.filter(p => p.visibility === 'public').flatMap(p => flat(inputs[p.name]));
     if (abi.return_type) {
       const bytes = inputs.decoded_preimage ?? inputs.preimage, length = inputs.decoded_length ?? inputs.length;
-      const value = JSON.parse(Buffer.from(bytes.slice(0, length)).toString());
-      values.push(value === null ? 5 : value === false ? 4 : value === true ? 3 : typeof value === 'number' ? 2 : 1);
+      const text = Buffer.from(bytes.slice(0, length)).toString(), value = JSON.parse(text);
+      values.push(id === 'aws-user-agent-class-v1' ? awsToolClass(text)
+        : value === null ? 5 : value === false ? 4 : value === true ? 3 : typeof value === 'number' ? 2 : 1);
     }
     return { circuitId: id, proof: 'AA==', publicInputs: values.map(String) };
   };
@@ -55,13 +58,27 @@ test('matches native openings by range, builds a closed bundle, and erases owned
     witness.openings.sent.reverse(); witness.openings.recv.reverse();
   }
   const bundle = await prove(value);
-  assert.equal(bundle.proofs.length, 10);
+  assert.equal(bundle.proofs.length, 11);
   assert.deepEqual(await verifyAwsBundle({ sessions: value.sessions, bundle, runtime: { verify: async () => true }, now: fixtureNow }),
-    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90 });
+    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
   assert.ok(value.inputsHeld.every(zero) && value.randomHeld.every(bytes => bytes.every(byte => byte === 0)));
   assert.doesNotMatch(JSON.stringify(bundle), /AWS_PRIVATE_[A-Z_]+_SENTINEL|111122223333|AIDAEXAMPLESYNTHETIC01|openings|witness|preimage/);
   await assert.rejects(prove(value), error);
   assert.throws(() => value.client.getRevealPlan(value.witnesses[0], value.witnesses[0]), error);
+});
+
+test('proves the tool class of each event without putting the userAgent in the bundle', async () => {
+  for (const [userAgent, tools] of [
+    ['APN/1.0 HashiCorp/1.0 Terraform/1.9.8 (+https://www.terraform.io) terraform-provider-aws/5.80.0 AWS_PRIVATE_AGENT_SENTINEL', { 'iam-role-trust-update': 'terraform' }],
+    ['aws-cli/2.22.4 md/command#iam.update-assume-role-policy', { 'iam-role-trust-update': 'cli' }],
+    ['[aws-cli/2.42.1 md/command#s3api.put-bucket-versioning]', { 'iam-role-trust-update': 'cli' }],
+    ['curl/8.5.0 AWS_PRIVATE_AGENT_SENTINEL', {}],
+  ]) {
+    const value = fixture({}, undefined, { userAgent }), bundle = await prove(value);
+    assert.equal(value.calls.filter(id => id === 'aws-user-agent-class-v1').length, 1);
+    assert.deepEqual((await verifyAwsBundle({ sessions: value.sessions, bundle, runtime: { verify: async () => true }, now: fixtureNow })).tools, tools);
+    assert.doesNotMatch(JSON.stringify(bundle), /AWS_PRIVATE_AGENT_SENTINEL|aws-cli|Terraform|curl/);
+  }
 });
 
 test('grouped client binds every family, clears all owned inputs, and rejects a forged last witness before proving', async () => {
@@ -69,7 +86,7 @@ test('grouped client binds every family, clears all owned inputs, and rejects a 
   const bundle = await prove(value);
   assert.equal(bundle.sessionIds.length, 4);
   assert.deepEqual(await verifyAwsBundle({ sessions: value.sessions, bundle, runtime: { verify: async () => true }, now: fixtureNow }),
-    { activities: ['iam-role-trust-update', 'lambda-configuration-update', 'security-group-ingress'], attribution: 'iam-user', windowDays: 90 });
+    { activities: ['iam-role-trust-update', 'lambda-configuration-update', 'security-group-ingress'], attribution: 'iam-user', windowDays: 90, tools: {} });
   assert.ok(value.inputsHeld.every(zero) && value.randomHeld.every(bytes => bytes.every(byte => byte === 0)));
   assert.doesNotMatch(JSON.stringify(bundle), /AWS_PRIVATE_[A-Z_]+_SENTINEL|111122223333|sg-0123456789abcdef0|192\.0\.2\.0|openings|witness|preimage/);
   const forged = fixture({}, families);
@@ -77,6 +94,16 @@ test('grouped client binds every family, clears all owned inputs, and rejects a 
   await assert.rejects(prove(forged), error);
   assert.equal(forged.calls.length, 0);
   assert.ok(forged.randomHeld.every(bytes => bytes.every(byte => byte === 0)));
+});
+
+test('an event session must return the event its request named, and no event twice, before any proof', async () => {
+  const other = { mutateRequest: request => { request.LookupAttributes[0].AttributeValue = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'; } };
+  const same = { eventIds: Array(2).fill('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') };
+  for (const value of [fixture({}, undefined, other), fixture({}, ['iam', 'lambda'], same)]) {
+    await assert.rejects(prove(value), error);
+    assert.equal(value.calls.length, 0);
+  }
+  assert.equal((await prove(fixture({}, ['iam', 'lambda']))).sessionIds.length, 3);
 });
 
 test('rejects changed, duplicate, missing or relocated native openings before proving', async () => {
@@ -134,7 +161,7 @@ test('serializes validated padded hexadecimal public fields as equivalent canoni
     assert.equal(entry.proof, emitted[index].proof);
   });
   assert.deepEqual(await verifyAwsBundle({ sessions: value.sessions, bundle, runtime: { verify: async () => true }, now: fixtureNow }),
-    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90 });
+    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
 });
 
 test('rejects proof-output substitutions and private extras, clearing inputs on every failure', async () => {
@@ -161,4 +188,34 @@ test('cancellation, expiry and clearing prevent any final bundle after a worker 
     await assert.rejects(prove(value), error); assert.ok(base.inputsHeld.every(zero));
     assert.ok(value.randomHeld.every(bytes => bytes.every(byte => byte === 0)));
   }
+});
+
+
+test('Fast proves fresh IAM identity equality, rechecks old activity, and refuses absent or wrong links', async () => {
+  let secret;
+  const full = fixture({ saveLink: (_, value) => { secret = new Uint8Array(value); } });
+  const recording = { policy: full.attempt, sessions: full.sessions, bundle: await prove(full) };
+  const fastSource = awsFastSource(recording);
+  const fresh = identityFixture({ blinderSeed: 'fresh' });
+  fresh.expected.sessionId = fresh.receipt.session.id = '99999999-9999-4999-8999-999999999999';
+  fresh.expected.nonceMac = fresh.receipt.session.nonceMac = 'B'.repeat(43);
+  fresh.receipt.transcript.sent = fresh.receipt.transcript.sent.replace(full.attempt.nonceMac, fresh.expected.nonceMac);
+  for (const item of fresh.receipt.results) if (item.action.kind === 'REVEAL') item.value = item.value.replace(full.attempt.nonceMac, fresh.expected.nonceMac);
+  const witnesses = [syntheticWitness(fresh)], sessions = [{ receipt: fresh.receipt, expected: fresh.expected }];
+  const make = (extra = {}) => createAwsPrivateClient({ attempt: fresh.expected, now: () => fixtureNow,
+    proveCircuit: full.proveCircuit, fastSource, linkSecret: new Uint8Array(secret), ...extra });
+  const bundle = await make().prove(witnesses, new AbortController().signal);
+  assert.equal(bundle.sessionIds.length, 1); assert.equal(bundle.proofs[0].circuitId, 'aws-identity-refresh-v1');
+  assert(bundle.proofs.length < recording.bundle.proofs.length);
+  const runtime = { verify: async entry => entry.proof === 'AA==' };
+  assert.deepEqual(await verifyAwsFastBundle({ sessions, bundle, runtime, recording, now: fixtureNow }),
+    { activities: ['iam-role-trust-update'], attribution: 'iam-user', windowDays: 90, tools: {} });
+  await assert.rejects(verifyAwsBundle({ sessions, bundle, runtime, now: fixtureNow }));
+  await assert.rejects(verifyAwsFastBundle({ sessions, bundle, runtime, recording, now: fixtureNow + 15 * 60 * 1000 }));
+  assert.throws(() => make({ linkSecret: undefined }));
+  await assert.rejects(make({ linkSecret: new Uint8Array(16) }).prove(witnesses, new AbortController().signal));
+  const wrongIdentity = syntheticWitness(identityFixture({ fields: { UserId: 'AIDAOTHERUSER000000001' } }));
+  await assert.rejects(make({ attempt: full.attempt }).prove([wrongIdentity], new AbortController().signal));
+  const tampered = structuredClone(recording); tampered.bundle.proofs[0].proof = 'AQ==';
+  await assert.rejects(verifyAwsFastBundle({ sessions, bundle, runtime, recording: tampered, now: fixtureNow }));
 });

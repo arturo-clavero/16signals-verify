@@ -3,6 +3,7 @@ import test from 'node:test';
 import { awsCredentialScanView } from './credential-scan-view.mjs';
 import { identityFixture } from './identity-fixture.mjs';
 import { eventFixture, fixtureNow } from './event-fixture.mjs';
+import { pageEvent, pageSessionFixture } from './page-fixture.mjs';
 
 function revealHeader(receipt, name, partial) {
   const offset = receipt.transcript.sent.indexOf(`${name}: `) + name.length + 2;
@@ -52,3 +53,22 @@ for (const fixture of [identityFixture, eventFixture]) {
     assert.throws(() => awsCredentialScanView(receipt, expected, fixtureNow), { message: 'AWS_PRIVATE_TRANSCRIPT_INVALID' });
   });
 }
+
+test('page receipt: scans the gapped response as revealed and masks only the request credential names', () => {
+  // Real-shaped page session: a response well over the 16 KiB HTTP framing limit, most rows left as gaps.
+  const now = Math.floor(fixtureNow / 1000);
+  const events = Array.from({ length: 40 }, (_, index) => pageEvent(index + 1, { eventSource: 'iam.amazonaws.com',
+    eventName: 'AttachRolePolicy', time: now - 2 * 86400 - index, padding: 1500 }));
+  const { receipt, expected } = pageSessionFixture({ step: 'P1', events, select: [events[3].eventID, events[17].eventID] });
+  assert.ok(receipt.transcript.recv_length > 4 * 16384 && receipt.transcript.recv.includes('\0'.repeat(1000)));
+  const before = structuredClone(receipt);
+  const view = awsCredentialScanView(receipt, expected, fixtureNow);
+  assert.deepEqual(receipt, before);
+  assert.equal(view.transcript.recv, receipt.transcript.recv);
+  assert.equal(view.transcript.sent, receipt.transcript.sent.replace(/authorization|x-amz-security-token/g, name => '\0'.repeat(name.length)));
+
+  // A credential header in the response is never masked on a page step, even with its value committed.
+  const cookie = pageSessionFixture({ step: 'P1', events, select: [events[3].eventID],
+    headers: [['content-type', 'application/x-amz-json-1.1'], ['set-cookie', 'synthetic=1'], ['connection', 'close']] });
+  assert.match(awsCredentialScanView(cookie.receipt, cookie.expected, fixtureNow).transcript.recv, /\r\nset-cookie: \0/);
+});
