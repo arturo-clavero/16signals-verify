@@ -171,8 +171,12 @@ Each provider module default-exports a descriptor. Registry entries are for the 
 
 ```sh
 proof-check <attestation.json> [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
+proof-check --uid <BAS uid> [--network bsc] [--bundle bundle.json] [--keys keys.json] [--config config.json]
 proof-check --proof package.json [--did did.json] [--claim <claim>] [--uid <BAS uid> [--network bsc]] [--keys keys.json] [--config config.json]
 ```
+
+With `--uid` (and no file) the signed attestation is read from that BAS record through the config's `bnb` registry,
+as the verify page's `?uid=` does; `--bundle` adds the public proof bundle, which is not on chain.
 
 With `--proof` it re-checks a proof package: `--did` adds a trusted DID document, `--uid` reads that BAS attestation
 through the config's `bnb` registry for the on-chain check. Lines are marked `ok`, `FAIL`, `att` (attested), `n/a` or
