@@ -24,7 +24,7 @@ All checks live in [`verify/verify.mjs`](../verify/verify.mjs) (no DOM, no netwo
 | Signed by a listed verifier key, unexpired, and the commitment recomputes from its fields | A verifier you accept signed exactly this claim, proof hash and pins, and the attestation has not expired |
 | Published proof bundle hashes to the signed proof hash | The bundle in the file is the one the signer saw |
 | Verification keys are the ones pinned in this repository | The proofs were made for these circuits, with these keys, and no others |
-| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS the bundle proves one linked event per activity family the claim lists, and the families are known and in policy order (the family names themselves come from receipts that stay private) |
+| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private) |
 
 Results:
 

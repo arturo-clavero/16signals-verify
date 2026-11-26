@@ -97,22 +97,36 @@ Each package holds:
   treated as untrusted input.
 
 GCP runs six TLS sessions (one identity session, five batches of log queries) and proves which skill groups had
-activity in a 7, 30 or 90-day window. AWS runs one identity session and one CloudTrail event session per selected
-activity family, and proves which supported families the IAM user acted in during the last 90 days:
+activity in a 7, 30 or 90-day window. AWS runs one identity session, then either one CloudTrail event session per
+selected skill area (at most 4) or up to 5 page sessions, each fetching one `LookupEvents` page of the user's events
+for a time window, in any commercial Region, and proving several rows in batches. A run uses one kind of session. It
+proves which operations or skill groups the IAM user acted in during the last 90 days. A saved browser link lets a
+later run refresh the identity with a smaller circuit. Details are in
+[`private-proof/aws/README.md`](../private-proof/aws/README.md).
 
-| Activity family | CloudTrail operation | Accepted event |
-| --- | --- | --- |
-| `iam-role-trust-update` | `UpdateAssumeRolePolicy` | Private role name and policy document; null response elements |
-| `lambda-configuration-update` | `UpdateFunctionConfiguration20150331v2` | Private function name and reviewed scalar configuration fields, at least one changed; null response elements. Environment maps and other unreviewed fields are rejected |
-| `security-group-ingress` | `AuthorizeSecurityGroupIngress` | Private group, rule and address fields under a fixed schema; response `_return: true` |
+The operation catalog ([`operation-catalog.mjs`](../private-proof/aws/operation-catalog.mjs)) holds the operations
+that can be proven, each with reviewed request and response schemas:
 
-Every selected event must be a successful, non-read-only call by the authenticated IAM user, in `us-east-1`, within the
-90 days ending at attempt issuance. Discovery selects at most one event per family and at most two families per run,
-in the table's order; it stops after two matches, so the third family is still reached when an earlier one has no
-usable event. Each family needs its own native session, identity link, time cutoff and proofs, and a repeated family
-is rejected. The result lists only the families observed: a family not listed is not established, which is not
-evidence of no activity. The claim does not cover configuration correctness or downstream outcomes. The grouped
-checks reuse the pinned AWS circuits and verification keys.
+| Skill area | Operations (CloudTrail event) |
+| --- | --- |
+| IAM and security | `iam-role-trust-update` (`UpdateAssumeRolePolicy`), `iam-role-policy-attach` |
+| Serverless | `lambda-configuration-update`, `lambda-code-update` |
+| Networking | `security-group-ingress` (`AuthorizeSecurityGroupIngress`) |
+| Storage | `s3-bucket-versioning`, `s3-bucket-lifecycle` |
+| Infrastructure as code | `cloudformation-change-set` |
+| Containers | `ecs-task-definition` |
+| Database | `dynamodb-ttl-update` |
+| Monitoring | `cloudwatch-metric-alarm` |
+
+[`skill-groups.mjs`](../private-proof/aws/skill-groups.mjs) adds 25 skill groups covering 152 CloudTrail operations by
+name, each with a `basic`, `intermediate` or `advanced` tier, used for discovery and for page-run results. Matching by
+name is activity evidence only; proving an event needs a full catalog entry.
+
+Every proven event must be a successful, non-read-only call by the authenticated IAM user within the 90 days ending at
+attempt issuance, in a commercial Region (events of global services are read from `us-east-1`). The caller's
+`userAgent` can be classified by a circuit into `console`, `cli`, `terraform` or `sdk-other`. The result lists only what
+was observed: an item not listed is not established, which is not evidence of no activity. The claim does not cover
+configuration correctness or downstream outcomes.
 
 If CloudTrail denies `LookupEvents`, the extension reports the fixed error `AWS_ACTIVITY_ACCESS_REQUIRED` and nothing
 from the response body.
@@ -189,10 +203,15 @@ and the blinded commitments. It never sees the private values or the blinders.
 account). Their public inputs include the blinded hashes, the lengths of hidden values and the time cutoff.
 
 **Learned by the relying party.** The coarse claim only. For GCP it is `gcp:observed:<groups>` with a 7, 30 or 90-day
-window, for example `gcp:observed:g1,g4`. For AWS it is `aws:activity:<families>:iam-user` with a 90-day window,
-listing the activity families proved in the table's order, for example
-`aws:activity:iam-role-trust-update,security-group-ingress:iam-user` (`claimOf` in
-[`cloud.mjs`](../crops/proof-bundle/cloud.mjs)). The claim format admits only lowercase words, digits and separators
+window, for example `gcp:observed:g1,g4`. For AWS it is one of, with a 90-day window (`claimOf` in
+[`cloud.mjs`](../crops/proof-bundle/cloud.mjs)):
+
+- `aws:activity:<operation ids>:iam-user`, for example `aws:activity:iam-role-trust-update,security-group-ingress:iam-user`;
+- `aws:areas:<positions>:iam-user`, 1-based skill-area positions, when the operation names exceed 128 bytes;
+- `aws:groups:<positions>:iam-user`, 1-based skill-group positions, for page runs;
+- the legacy `aws:iam-role-trust-update:iam-user`, still accepted.
+
+The claim format admits only lowercase words, digits and separators
 ([`commitment.mjs`](../crops/proof-bundle/commitment.mjs)), so no free text or identifier fits.
 
 **Published.** The attestation (claim, proof hash, verification-key hashes, optional core and plugin digests, times)

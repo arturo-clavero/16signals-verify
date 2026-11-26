@@ -75,8 +75,9 @@ root.
 ### Known gaps
 
 - The verify page checks signatures, hashes and pins, not the zero-knowledge proofs themselves.
-- For AWS, the verify page checks that the bundle proves one linked event per family the claim lists. It cannot
-  recompute the family names: they come from receipts that stay private, so it trusts the signer for them.
+- For AWS event runs, the verify page checks that the bundle proves one linked event per operation or skill area the
+  claim lists, in catalog order. It cannot recompute the names: they come from receipts that stay private, so it
+  trusts the signer for them. Page-run claims (`aws:groups:...`) are checked for format only.
 - Nothing stores attestations or bundles for the user, and the verify page has no lookup by commitment. A lost file
   cannot be recovered from this repository.
 
