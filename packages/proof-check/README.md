@@ -96,6 +96,24 @@ the library the binding is still checked and the step stays open. `closeZk()` re
 The test packages in `test-fixtures/proof-package` are built from the providers' synthetic fixtures by
 `test-fixtures/make-packages.mjs`, signed with the test key of `servers/verifier/src/tests/receipt-v2-vectors.json`.
 
+### Building a package
+
+From the verifier's webhooks (one per TLS session, with `receipt` and `leaves`) and the proof bundle the page got
+from the extension, once the provider's `verify-bundle.mjs` accepted it:
+
+```js
+import { buildPackage, webhookRun } from '@tlsn-fork/proof-check';
+
+const runs = await Promise.all(webhooks.map((payload, i) => webhookRun(payload, { zk: i === 0 ? bundle : undefined })));
+const pkg = await buildPackage({ descriptor: gcp, claim: gcp.claimFromResult(result).claim, runs, vks });
+```
+
+`webhookRun(payload, { zk?, disclose? })` reads the transcript from the payload; `buildRun({ receipt, leaves, sent,
+recv, zk?, disclose? })` takes the bytes directly. Each run must rebuild its signed root, or it throws. Reveal leaves
+are published as hashes unless `disclose(leaf, index)` returns true; commit leaves always carry salt and digest.
+`buildPackage` takes `pins` from the descriptor for the circuits the bundle uses (or pass `pins`); `vks` (circuit id ->
+key bytes or base64) is optional.
+
 ## Plug points
 
 **Provider descriptor.** One per evidence type, picked by `attestation.provider`. An attestation whose provider has
