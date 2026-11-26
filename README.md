@@ -120,6 +120,8 @@ plugin and a new descriptor.
 
 ## Plug it into your project
 
+A runnable version of these steps, from sign-in to a checked proof package: [examples/demo](examples/demo/README.md).
+
 1. **Run a TLS verifier.** Build and run it with Docker (the build context is the repository root). The webhook
    file maps the provider host to your backend; `*` matches any host.
 
@@ -161,15 +163,17 @@ plugin and a new descriptor.
    `TLSN_RUN_BUILTIN_RESPONSE` with `{ success, result }` or `{ success: false, error }`. No ACK within 10 seconds
    means the extension is missing or was reloaded.
 
-4. **Sign the attestation in your backend.** Check the proof bundle against the verifier's receipts with the
-   provider's `verify-bundle.mjs`, then build and sign the attestation with `fromVerifiedBundle`,
-   `createAttestation` and `signAttestation` from `proof-check` (see its
-   [publishing side](packages/proof-check/README.md#publishing-side)).
+4. **Build the proof package in your backend.** Check the proof bundle against the verifier's receipts with the
+   provider's `verify-bundle.mjs`, then build the package from the webhooks with `webhookRun` and `buildPackage`
+   from `proof-check` (see [building a package](packages/proof-check/README.md#building-a-package)). To publish a
+   signed attestation as well, use `fromVerifiedBundle`, `createAttestation` and `signAttestation`
+   ([publishing side](packages/proof-check/README.md#publishing-side)).
 
 5. **Check a proof.**
 
    ```sh
-   node packages/proof-check/cli.mjs attestation.json --bundle bundle.json
+   node packages/proof-check/cli.mjs --proof package.json --did did.json   # did.json: your verifier's DID document
+   node packages/proof-check/cli.mjs attestation.json --bundle bundle.json  # a signed attestation
    ```
 
    It prints one line per check. Exit code 0 means all checks passed, 1 a check failed, 2 bad input.

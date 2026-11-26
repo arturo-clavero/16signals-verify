@@ -112,7 +112,7 @@ const pkg = await buildPackage({ descriptor: gcp, claim: gcp.claimFromResult(res
 recv, zk?, disclose? })` takes the bytes directly. Each run must rebuild its signed root, or it throws. Reveal leaves
 are published as hashes unless `disclose(leaf, index)` returns true; commit leaves always carry salt and digest.
 `buildPackage` takes `pins` from the descriptor for the circuits the bundle uses (or pass `pins`); `vks` (circuit id ->
-key bytes or base64) is optional.
+key bytes or base64) is optional. [`examples/demo`](../../examples/demo/README.md) does all of this for a live run.
 
 ## Plug points
 
