@@ -1,5 +1,7 @@
 # Releasing the browser extension
 
+The npm packages (`@16signals-verify/*`) are released separately: see [`docs/releasing.md`](docs/releasing.md).
+
 This guide covers releasing the **Chrome extension** to the Chrome Web Store. For releasing
 the **mobile app** to the App Store and Play Store (EAS builds, the `0.1.AABB` version
 scheme, store submission), see [`app/mobile/RELEASING.md`](app/mobile/RELEASING.md).

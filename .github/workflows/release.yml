@@ -1,0 +1,52 @@
+name: release
+
+# Publishes the npm packages under @16signals-verify when a tag npm-v<version> is pushed (for example npm-v0.1.0).
+# The three packages share one version; the tag must match it. Needs the NPM_TOKEN secret. See docs/releasing.md.
+on:
+  push:
+    tags:
+      - 'npm-v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check the token and the versions
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || { echo "NPM_TOKEN secret is not set"; exit 1; }
+          TAG="${GITHUB_REF_NAME#npm-v}"
+          for dir in private-proof packages/proof-check packages/bnb-anchor; do
+            VERSION=$(node -p "require('./$dir/package.json').version")
+            test "$VERSION" = "$TAG" || { echo "$dir is $VERSION, tag is $TAG"; exit 1; }
+          done
+
+      - name: Install the packages' dependencies
+        run: npm ci --ignore-scripts -w private-proof -w packages/proof-check -w packages/bnb-anchor
+
+      - name: Test
+        run: >
+          node --test --test-concurrency=1
+          packages/proof-check/*.test.mjs packages/bnb-anchor/*.test.mjs private-proof/package.test.mjs
+
+      - name: Publish (dependencies first)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in private-proof packages/proof-check packages/bnb-anchor; do
+            npm publish --workspace "$dir" --provenance --access public
+          done
