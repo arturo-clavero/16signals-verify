@@ -26,7 +26,7 @@ UID is exported as `SCHEMA_UID`.
 ```sh
 npm ci
 export BNB_PRIVATE_KEY=0x...          # funded account, needed for register and publish
-node cli.mjs register                 # once per network: registers the schema
+node cli.mjs register                 # once per network: registers the schema (no-op if it already is)
 node cli.mjs publish attestation.json # a signed attestation, or { "attestation": ..., "bundle": ... }
 node cli.mjs read 0x<uid>             # prints the anchored attestation
 ```

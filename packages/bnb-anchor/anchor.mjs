@@ -34,7 +34,10 @@ export const BAS_ABI = [
     { name: 'schemaUID', type: 'bytes32', indexed: true }] },
 ];
 export const REGISTRY_ABI = [{ type: 'function', name: 'register', stateMutability: 'nonpayable', outputs: [{ type: 'bytes32' }],
-  inputs: [{ name: 'schema', type: 'string' }, { name: 'resolver', type: 'address' }, { name: 'revocable', type: 'bool' }] }];
+  inputs: [{ name: 'schema', type: 'string' }, { name: 'resolver', type: 'address' }, { name: 'revocable', type: 'bool' }] },
+{ type: 'function', name: 'getSchema', stateMutability: 'view', inputs: [{ name: 'uid', type: 'bytes32' }], outputs: [{ type: 'tuple',
+  components: [{ name: 'uid', type: 'bytes32' }, { name: 'resolver', type: 'address' }, { name: 'revocable', type: 'bool' },
+    { name: 'schema', type: 'string' }] }] }];
 
 const UID = /^0x[0-9a-f]{64}$/i;
 const fail = reason => { throw new Error(`BNB_ANCHOR_INVALID: ${reason}`); };
