@@ -5,12 +5,13 @@
 //                    [--uid <BAS uid> [--network bsc]] [--keys keys.json] [--config config.json] [--now <ISO time>]
 // The attestation file holds a signed attestation, or { attestation, bundle }. The --proof file holds a proof package,
 // or { package, attestation }; --attestation adds the issuer's signed attestation of the package's claim. Providers
-// (and keys, unless --keys) come from the config; the default is verify/verify.config.json in this repository. Prints
-// one line per check.
+// (and keys, unless --keys) come from the config; the default is verify/verify.config.json in this repository, or the
+// one in @16signals-verify/providers when installed from npm. Prints one line per check.
 // Exit codes: 0 all checks passed, 1 a check failed, 2 bad input. With --proof, attested and not-applicable lines
 // never fail, and a check that could not run here (no DID document, no bb.js) also exits 2.
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDropped, verifyCommitment } from './check.mjs';
 import { loadConfig } from './config.mjs';
 import { checkPackage, packageLines } from './package/check-package.mjs';
@@ -20,7 +21,14 @@ const USAGE = `usage: proof-check <attestation.json> [--bundle bundle.json] [--k
        proof-check --uid <BAS uid> [--network bsc|bsc-testnet] [--bundle bundle.json] [--keys keys.json] [--config config.json] [--now <ISO time>]
        proof-check --proof package.json [--did did.json] [--claim <claim>] [--attestation attestation.json]
                    [--uid <BAS uid> [--network bsc|bsc-testnet]] [--keys keys.json] [--config config.json] [--now <ISO time>]`;
-const DEFAULT_CONFIG = new URL('../../verify/verify.config.json', import.meta.url);
+const REPO_CONFIG = new URL('../../verify/verify.config.json', import.meta.url);
+/** The repository's config when run from a checkout, else the providers package's (a dependency when installed). */
+function defaultConfig() {
+  if (!fileURLToPath(import.meta.url).split(/[\\/]/).includes('node_modules') && existsSync(REPO_CONFIG)) return REPO_CONFIG;
+  try { return new URL(import.meta.resolve('@16signals-verify/providers/verify.config.json')); } catch {
+    throw new Error('no config: install @16signals-verify/providers or pass --config');
+  }
+}
 const readJson = async url => JSON.parse(await readFile(url, 'utf8'));
 const exit = (code, message) => { if (message) (code === 2 ? console.error : console.log)(message); process.exit(code); };
 
@@ -36,7 +44,7 @@ if (positional.length !== (options.proof || options.uid ? 0 : 1)) exit(2, USAGE)
 
 let input, config;
 try {
-  config = await loadConfig(options.config ? pathToFileURL(options.config) : DEFAULT_CONFIG, { readJson });
+  config = await loadConfig(options.config ? pathToFileURL(options.config) : defaultConfig(), { readJson });
   const now = options.now === undefined ? undefined : Date.parse(options.now);
   if (Number.isNaN(now)) throw new Error('--now: not a date');
   const keys = options.keys ? await readJson(options.keys) : config.keys;
@@ -63,9 +71,13 @@ try {
 /** A BNB Chain (BAS) registry for one attestation UID, from the config's bnb registry entry. */
 async function bnbRegistries() {
   if (!options.uid) return [];
-  const entry = config.registries.find(item => item?.type === 'bnb');
-  if (!entry?.module) throw new Error('--uid needs a bnb registry in the config');
-  const [{ createPublicClient, http }, { NETWORKS, bnbRegistry }] = await Promise.all([import('viem'), import(entry.module)]);
+  // Without a bnb registry in the config, the @16signals-verify/bnb-anchor package when it is installed next to this one.
+  const entry = config.registries.find(item => item?.type === 'bnb') ?? {};
+  const anchor = entry.module ? import(entry.module) : import('@16signals-verify/bnb-anchor').catch(() => {
+    throw new Error('--uid needs a bnb registry in the config or @16signals-verify/bnb-anchor installed');
+  });
+  const { NETWORKS, bnbRegistry } = await anchor;
+  const { createPublicClient, http } = await import('viem');
   const network = options.network ?? entry.network ?? 'bsc-testnet';
   if (!NETWORKS[network]) throw new Error(`--network: unknown network ${network}`);
   const client = createPublicClient({ transport: http(NETWORKS[network].rpcUrl) });

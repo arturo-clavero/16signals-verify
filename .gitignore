@@ -30,3 +30,8 @@ core/tlsn/
 core/tlsn.prepare.lock
 # Demo attestor key (examples/demo/make-attestor-key.mjs)
 attestor-key.json
+
+# License copies made by npm pack (prepack) for the published packages
+packages/proof-check/LICENSE-*
+packages/bnb-anchor/LICENSE-*
+private-proof/LICENSE-*

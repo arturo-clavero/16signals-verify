@@ -1,0 +1,53 @@
+{
+  "name": "@16signals-verify/providers",
+  "version": "0.1.0",
+  "description": "Provider descriptors and pinned verification keys for Google Cloud, AWS and Cloudflare private TLSNotary proofs, for @16signals-verify/proof-check",
+  "keywords": ["tlsnotary", "zero-knowledge", "proof", "verification", "gcp", "aws", "cloudflare"],
+  "homepage": "https://github.com/arturo-clavero/16signals-verify/tree/main/private-proof#readme",
+  "bugs": "https://github.com/arturo-clavero/16signals-verify/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arturo-clavero/16signals-verify.git",
+    "directory": "private-proof"
+  },
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./index.mjs",
+    "./gcp": "./gcp/descriptor.mjs",
+    "./aws": "./aws/descriptor.mjs",
+    "./cloudflare": "./cloudflare/descriptor.mjs",
+    "./verify.config.json": "./verify.config.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "verify.config.json",
+    "gcp/descriptor.mjs",
+    "gcp/policy.mjs",
+    "gcp/generated/catalog.json",
+    "gcp/generated/verification-keys.json",
+    "aws/descriptor.mjs",
+    "aws/operation-catalog.mjs",
+    "aws/request.mjs",
+    "aws/skill-groups.mjs",
+    "aws/generated/pins.json",
+    "cloudflare/descriptor.mjs",
+    "cloudflare/request.mjs",
+    "cloudflare/skill-groups.mjs",
+    "cloudflare/generated/pins.json",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prepack": "cp ../LICENSE-MIT ../LICENSE-APACHE .",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

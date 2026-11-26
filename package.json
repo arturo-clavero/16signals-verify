@@ -10,7 +10,8 @@
   },
   "workspaces": [
     "packages/*",
-    "app/*"
+    "app/*",
+    "private-proof"
   ],
   "scripts": {
     "build": "npm run build:deps && npm run build --workspace=extension",

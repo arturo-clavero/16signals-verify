@@ -1,19 +1,45 @@
 {
-  "name": "@tlsn-fork/bnb-anchor",
+  "name": "@16signals-verify/bnb-anchor",
   "version": "0.1.0",
   "description": "Anchor signed verifier attestations on BNB Smart Chain through the BNB Attestation Service",
-  "type": "module",
-  "license": "MIT OR Apache-2.0",
-  "exports": {
-    ".": "./anchor.mjs"
+  "keywords": ["tlsnotary", "attestation", "bnb", "bsc", "bas", "verification", "cli"],
+  "homepage": "https://github.com/arturo-clavero/16signals-verify/tree/main/packages/bnb-anchor#readme",
+  "bugs": "https://github.com/arturo-clavero/16signals-verify/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arturo-clavero/16signals-verify.git",
+    "directory": "packages/bnb-anchor"
   },
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./anchor.mjs",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "bnb-anchor": "./cli.mjs"
+  },
+  "files": [
+    "anchor.mjs",
+    "cli.mjs",
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1",
+    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE"
   },
   "dependencies": {
+    "@16signals-verify/proof-check": "^0.1.0",
     "viem": "2.57.6"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

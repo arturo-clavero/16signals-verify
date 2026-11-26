@@ -1,11 +1,20 @@
 {
-  "name": "@tlsn-fork/proof-check",
+  "name": "@16signals-verify/proof-check",
   "version": "0.1.0",
   "description": "Check signed attestations, public proof bundles and proof packages of private TLSNotary proofs, with pluggable providers and registries",
-  "type": "module",
+  "keywords": ["tlsnotary", "zero-knowledge", "proof", "verification", "attestation", "cli"],
+  "homepage": "https://github.com/arturo-clavero/16signals-verify/tree/main/packages/proof-check#readme",
+  "bugs": "https://github.com/arturo-clavero/16signals-verify/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/arturo-clavero/16signals-verify.git",
+    "directory": "packages/proof-check"
+  },
   "license": "MIT OR Apache-2.0",
+  "type": "module",
   "exports": {
-    ".": "./index.mjs"
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
   },
   "bin": {
     "proof-check": "./cli.mjs"
@@ -14,16 +23,35 @@
     "*.mjs",
     "package/*.mjs",
     "!*.test.mjs",
-    "!test-fixtures",
-    "README.md"
+    "README.md",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1"
+    "test": "node --test --test-concurrency=1",
+    "prepack": "cp ../../LICENSE-MIT ../../LICENSE-APACHE .",
+    "postpack": "rm -f LICENSE-MIT LICENSE-APACHE"
+  },
+  "dependencies": {
+    "@16signals-verify/providers": "^0.1.0"
   },
   "optionalDependencies": {
-    "@aztec/bb.js": "4.2.0-aztecnr-rc.2"
+    "@aztec/bb.js": "4.2.0-aztecnr-rc.2",
+    "viem": "2.57.6"
+  },
+  "peerDependencies": {
+    "@16signals-verify/bnb-anchor": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@16signals-verify/bnb-anchor": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Usage: cli.mjs register | publish <file.json> | read <uid>
+// Usage: bnb-anchor register | publish <file.json> | read <uid>
 // Env: BNB_NETWORK (bsc-testnet | bsc), BNB_RPC_URL, BNB_PRIVATE_KEY for register/publish.
 import { readFile } from 'node:fs/promises';
 import { createPublicClient, createWalletClient, defineChain, http } from 'viem';
@@ -39,6 +39,6 @@ if (command === 'register') {
 } else if (command === 'read' && arg) {
   console.log(JSON.stringify(await readAnchor({ uid: arg, client, network }), null, 2));
 } else {
-  console.error('usage: cli.mjs register | publish <file.json> | read <uid>');
+  console.error('usage: bnb-anchor register | publish <file.json> | read <uid>');
   process.exit(2);
 }

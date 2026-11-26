@@ -1,0 +1,8 @@
+{
+  "providers": [
+    "./gcp/descriptor.mjs",
+    "./aws/descriptor.mjs",
+    "./cloudflare/descriptor.mjs"
+  ],
+  "keys": { "keys": [] }
+}
