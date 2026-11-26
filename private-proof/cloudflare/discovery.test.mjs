@@ -49,8 +49,11 @@ test('windows: disjoint blocks of CF_PAGE_LIMIT_MAX rows, most new (group, day) 
 
 test('rows inside a page: mappable provable rows, new pairs first, capped', () => {
   const rows = Array.from({ length: 25 }, (_, i) => fixtureRow({ time: at(1, i), ...(i === 7 ? { product: 'queues', type: null } : {}) }));
-  const picked = selectCloudflareRows(rows, i => i !== 0, FIXTURE_USER, now);
+  const picked = selectCloudflareRows(rows, i => i !== 24, FIXTURE_USER, now);
   assert.equal(picked.length, 12);
-  assert.ok(!picked.includes(0) && picked.includes(7));
+  assert.ok(!picked.includes(24) && picked.includes(7));
+  // Rows before the last pick are covered, so a row that cannot be hidden (here: not inside one chunk) ends the picks.
+  assert.deepEqual(selectCloudflareRows(rows, i => i !== 0, FIXTURE_USER, now), []);
+  assert.deepEqual(selectCloudflareRows(rows, i => i !== 3, FIXTURE_USER, now), [0, 1, 2]);
   assert.deepEqual(selectCloudflareRows([fixtureRow({ time: at(1), actorType: 'system' })], () => true, FIXTURE_USER, now), []);
 });

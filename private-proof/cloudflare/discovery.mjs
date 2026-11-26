@@ -9,10 +9,11 @@
  *   distinct (skill group, day) pairs. Returns [{ since, before, limit }], newest window first.
  * selectCloudflareRows(rows, mappable, userId, issuedAt) picks, inside one proven page, up to CF_PAGE_ROW_CAP rows to
  *   prove: catalog evidence that fits the row grammar and size limits and lies inside one chunk; new (group, day)
- *   pairs first.
+ *   pairs first. Rows before the last pick that are not picked are hidden whole, so the picks stop at the first row
+ *   that cannot be hidden.
  */
 import { buildCloudflareRequest, CF_PAGE_LIMIT_MAX, CF_PAGE_STEPS, CF_WINDOW_DAYS } from './request.mjs';
-import { CF_PAGE_ROW_CAP } from './session.mjs';
+import { CF_PAGE_ROW_CAP, CF_SKIPPED_ROW_MAX } from './session.mjs';
 import { countsAsEvidence, cloudflareCatalogOperation } from './skill-groups.mjs';
 import { rowPieces } from './row-structure.mjs';
 
@@ -83,5 +84,13 @@ export function selectCloudflareRows(rows, mappable, userId, issuedAt) {
   const candidates = rows.map((row, index) => ({ row, index })).filter(({ row, index }) => mappable(index) && provableRow(row, userId, issuedAt));
   const seen = new Set(), first = [], rest = [];
   for (const c of candidates) { const p = pair(c.row); (seen.has(p) ? rest : first).push(c); seen.add(p); }
-  return [...first, ...rest].slice(0, CF_PAGE_ROW_CAP).map(c => c.index).sort((a, b) => a - b);
+  const picked = new Set([...first, ...rest].slice(0, CF_PAGE_ROW_CAP).map(c => c.index));
+  // Every row before the last proven one is covered, a row left out as one hidden value: stop at the first row that
+  // is neither picked nor hideable (not in one chunk, or wider than the widest piece circuit).
+  const kept = [];
+  for (let index = 0; index < rows.length; index++) {
+    if (picked.has(index)) kept.push(index);
+    else if (!mappable(index) || JSON.stringify(rows[index]).length > CF_SKIPPED_ROW_MAX) break;
+  }
+  return kept;
 }

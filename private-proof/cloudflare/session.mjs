@@ -12,14 +12,16 @@
  *   public when CF_RESPONSE_HEADERS accepts them, otherwise hidden (header-v1); framing headers public. Chunk-size
  *   lines and chunk CRLFs public, so the verifier can map wire bytes to body bytes.
  *   identity body: `{"result":{"id":` public, then the id (one hidden JSON value), the rest is a gap.
- *   page body:     `{"errors":[],"result":[` public, then each selected row as rowPieces (row-structure.mjs), each
- *                  row inside one chunk, rows separated by gaps.
+ *   page body:     `{"errors":[],"result":[` public, then every row up to the last selected one, each inside one
+ *                  chunk: selected rows as rowPieces (row-structure.mjs), the others as one hidden JSON value, the
+ *                  commas between rows public. Only the bytes after the last selected row are a gap, so a revealed
+ *                  row is always a top-level element of the result array (never JSON nested inside another row).
  *
  * Obligations (each hidden piece must be proven by a circuit before anything counts):
  *   { hash, length, need } with need 'header' (ASCII, no CR/LF), 'value' (one JSON value), 'tail' (JSON string
  *   tail), 'actor' (one JSON value, byte-equal to the identity id).
  */
-import { CF_ID, CF_PAGE_INFIX, CF_PAGE_PREFIX, CF_REQUEST_HEADERS, CF_RESPONSE_HEADERS, CF_USER_PATH } from './request.mjs';
+import { CF_ID, CF_PAGE_INFIX, CF_PAGE_LIMIT_MAX, CF_PAGE_PREFIX, CF_REQUEST_HEADERS, CF_RESPONSE_HEADERS, CF_USER_PATH } from './request.mjs';
 import { parseHttpResponse, transcriptRange } from './http-chunked.mjs';
 import { readRow, rowPieces } from './row-structure.mjs';
 
@@ -27,6 +29,8 @@ const fail = what => { throw new Error(`CF_SESSION_INVALID:${what}`); };
 export const CF_IDENTITY_PREFIX = '{"result":{"id":';
 export const CF_PAGE_BODY_PREFIX = '{"errors":[],"result":[';
 export const CF_PAGE_ROW_CAP = 12;
+/** A row left out of the proof is one hidden JSON value, at most the widest piece circuit's size. */
+export const CF_SKIPPED_ROW_MAX = 4096;
 export const CF_MAX_RANGES = 512;
 const HEADER_LIMIT = 2048;
 const latin = bytes => String.fromCharCode(...bytes);
@@ -111,14 +115,25 @@ function responseRanges(recv, step, selectedRows) {
     add(0, CF_PAGE_BODY_PREFIX.length, false);
     const spans = cloudflarePageRows(body);
     if (selectedRows.length > CF_PAGE_ROW_CAP || new Set(selectedRows).size !== selectedRows.length) fail('row-cap');
-    for (const index of [...selectedRows].sort((a, b) => a - b)) {
+    // Every row up to the last selected one is covered: selected rows as rowPieces, the others as one hidden JSON
+    // value, the commas between them public. Only the bytes after the last selected row stay a gap.
+    const selected = new Set(selectedRows), last = Math.max(-1, ...selectedRows);
+    let at = CF_PAGE_BODY_PREFIX.length;
+    for (let index = 0; index <= last; index++) {
       const span = spans[index];
       if (!span || !map(span.start, span.end)) fail(`row:${index}`);
-      for (const piece of rowPieces(body.slice(span.start, span.end))) {
-        const need = piece.kind === 'R' ? undefined : piece.kind === 'A' ? 'actor' : piece.kind === 'T' ? 'tail' : 'value';
-        add(span.start + piece.start, span.start + piece.end, piece.kind !== 'R', need);
+      if (span.start > at) add(at, span.start, false);
+      if (selected.has(index)) {
+        for (const piece of rowPieces(body.slice(span.start, span.end))) {
+          const need = piece.kind === 'R' ? undefined : piece.kind === 'A' ? 'actor' : piece.kind === 'T' ? 'tail' : 'value';
+          add(span.start + piece.start, span.start + piece.end, piece.kind !== 'R', need);
+        }
+        rows.push(index);
+      } else {
+        if (span.end - span.start > CF_SKIPPED_ROW_MAX) fail(`row:${index}`);
+        add(span.start, span.end, true, 'value');
       }
-      rows.push(index);
+      at = span.end;
     }
   }
   return { ranges, rows };
@@ -326,14 +341,25 @@ export function inspectCloudflareSession(directions, step) {
     obligations.push({ hash: first[1].hash, length: 34, need: 'value' });
     return { step, identity: { hash: first[1].hash, length: 34 }, obligations };
   }
-  if (first[0]?.kind !== 'R' || !first[0].text.startsWith(CF_PAGE_BODY_PREFIX)) fail('page-body');
-  // The first run may continue straight into the first row.
+  // Page body: covered without a gap from the public prefix up to the end of the last row (a gap only after it), so
+  // every row is a top-level element of the result array. Runs split only at chunk framing.
+  for (let i = 1; i < runs.length; i++) if (runs[i].bodyStart !== runs[i - 1].bodyStart + runs[i - 1].end - runs[i - 1].start) fail('row-gap');
+  const all = runs.flatMap(pieces).reduce((out, p) => {
+    const last = out.at(-1);
+    if (p.kind === 'R' && last?.kind === 'R') out[out.length - 1] = { ...last, text: last.text + p.text, end: p.end };
+    else out.push(p);
+    return out;
+  }, []);
+  if (all[0]?.kind !== 'R' || !all[0].text.startsWith(CF_PAGE_BODY_PREFIX)) fail('page-body');
+  all[0] = { ...all[0], text: all[0].text.slice(CF_PAGE_BODY_PREFIX.length) };
+  const elements = pageElements(all[0].text ? all : all.slice(1));
+  if (!elements.length || elements.length > CF_PAGE_LIMIT_MAX) fail('rows');
   const rowRuns = [];
-  if (first[0].text.length > CF_PAGE_BODY_PREFIX.length || first.length > 1) {
-    const rest = [{ ...first[0], text: first[0].text.slice(CF_PAGE_BODY_PREFIX.length) }, ...first.slice(1)];
-    rowRuns.push(rest[0].text ? rest : rest.slice(1));
+  for (const element of elements) {
+    // A row left out is one hidden piece, proven to be exactly one JSON value; it carries no evidence.
+    if (element.length === 1 && element[0].kind === 'H') obligations.push({ hash: element[0].hash, length: element[0].length, need: 'value' });
+    else rowRuns.push(element);
   }
-  for (const run of runs.slice(1)) rowRuns.push(pieces(run));
   if (!rowRuns.length || rowRuns.length > CF_PAGE_ROW_CAP) fail('rows');
   const rows = [];
   for (const run of rowRuns) {
@@ -345,6 +371,40 @@ export function inspectCloudflareSession(directions, step) {
     rows.push({ ...fields, actor: { hash: actor.hash, length: actor.length } });
   }
   return { step, rows, obligations };
+}
+
+/**
+ * Splits the covered page body after the prefix into the result array's top-level elements: each one either a row
+ * (pieces from its `{` to its matching `}`) or a single hidden piece, separated by revealed commas. Hidden pieces are
+ * proven to be one JSON value (or the tail of the string they close), so the depth read from the revealed bytes is the
+ * real depth. The body may end mid-way only between elements (the gap after the last row).
+ */
+function pageElements(pieces) {
+  const elements = [];
+  let row = null, depth = 0, inString = false, escaped = false, comma = false;
+  for (const p of pieces) {
+    if (p.kind === 'H') {
+      if (row) { row.push(p); inString = false; continue; }
+      if (comma) fail('row-separator');
+      elements.push([p]); comma = true; continue;
+    }
+    let from = 0;
+    for (let i = 0; i < p.text.length; i++) {
+      const c = p.text[i];
+      if (!row) {
+        if (comma) { if (c !== ',') fail('row-separator'); comma = false; continue; }
+        if (c !== '{') fail('row-start');
+        row = []; from = i; depth = 1; continue;
+      }
+      if (inString) { if (escaped) escaped = false; else if (c === '\\') escaped = true; else if (c === '"') inString = false; continue; }
+      if (c === '"') inString = true;
+      else if (c === '{' || c === '[') depth++;
+      else if ((c === '}' || c === ']') && --depth === 0) { row.push({ ...p, text: p.text.slice(from, i + 1) }); elements.push(row); row = null; comma = true; }
+    }
+    if (row && from < p.text.length) row.push({ ...p, text: p.text.slice(from) });
+  }
+  if (row) fail('row-open');
+  return elements;
 }
 
 export { CF_ID };

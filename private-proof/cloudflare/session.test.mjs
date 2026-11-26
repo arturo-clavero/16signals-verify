@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { planCloudflareSession, planView, inspectCloudflareSession, cloudflarePageRows } from './session.mjs';
 import { requestBytes, responseBytes, identityBody, pageBody, FIXTURE_TOKEN } from './session-fixture.mjs';
-import { FIXTURE_USER, FIXTURE_ACCOUNT } from './row-fixture.mjs';
+import { FIXTURE_USER, FIXTURE_ACCOUNT, fixtureRow } from './row-fixture.mjs';
+import { rowPieces } from './row-structure.mjs';
 
 const dec = b => new TextDecoder().decode(b);
 const revealed = view => dec(view.bytes);
@@ -32,17 +33,40 @@ test('page session: selected rows give public fields, every hidden piece an obli
   assert.deepEqual(out.rows.map(r => `${r.product}/${r.type} ${r.action} ${r.context} ${r.day}`), ['d1/database create oauth 2026-11-25', 'workers/scripts update oauth 2026-11-25']);
   const text = revealed(view.recv) + revealed(view.sent);
   for (const secret of [FIXTURE_TOKEN, FIXTURE_ACCOUNT, FIXTURE_USER, 'someone@example.test', '192.0.2.1', '07:00:55']) assert.ok(!text.includes(secret), secret);
-  assert.ok(!text.includes('"product":"queues"'), 'unselected rows stay gaps');
+  assert.ok(!text.includes('"product":"queues"'), 'unselected rows stay hidden');
   const needs = out.obligations.reduce((m, o) => ({ ...m, [o.need]: (m[o.need] ?? 0) + 1 }), {});
   assert.equal(needs.actor, 2);
   assert.equal(needs.tail, 2);
-  assert.equal(needs.value, 15); // 7 per fixture row + the request object
+  assert.equal(needs.value, 16); // 7 per fixture row + the request object + the unselected row as one value
 });
 
 test('a row crossing a chunk boundary is refused by the planner', () => {
   const body = pageBody([{}, {}]), at = body.indexOf('"actor"') + 3;
   assert.throws(() => planCloudflareSession('P0', requestBytes('page'), responseBytes(body, [at]), [0]), /crosses-chunk|row:0/);
-  assert.ok(planCloudflareSession('P0', requestBytes('page'), responseBytes(body, [at]), [1]));
+  // Row 0 must still be covered (hidden whole) to prove row 1, and it cannot be hidden across chunks.
+  assert.throws(() => planCloudflareSession('P0', requestBytes('page'), responseBytes(body, [at]), [1]), /crosses-chunk|row:0/);
+  const second = body.indexOf('"actor"', at) + 3;
+  assert.ok(planCloudflareSession('P0', requestBytes('page'), responseBytes(body, [second]), [0]));
+});
+
+test('a row-shaped object nested inside a real row cannot be proven as a row', () => {
+  // A logged request body is real nested JSON; a candidate could shape it like a row with their own actor id.
+  const fake = fixtureRow({ product: 'workers', type: 'scripts', action: 'update' });
+  const body = pageBody([{ request: fake }]), sent = requestBytes('page'), recv = responseBytes(body);
+  const fakeText = JSON.stringify(fake), wire = new TextDecoder('latin1').decode(recv);
+  const bodyAt = wire.indexOf(body), fakeAt = body.indexOf(fakeText, 1);
+  assert.ok(bodyAt > 0 && fakeAt > 0);
+  const honest = planCloudflareSession('P0', sent, recv, [0]);
+  const handler = hide => ({ type: 'RECV', part: 'BODY', action: hide ? { kind: 'HASH', algorithm: 'SHA256' } : { kind: 'REVEAL' } });
+  // Reveal the prefix and the nested object's row pieces, leave the rest of the real row as gaps.
+  const recvRanges = [
+    ...honest.recvRangesWithHandlers.flatMap(r => [
+      { ...r, end: Math.min(r.end, bodyAt) }, { ...r, start: Math.max(r.start, bodyAt + body.length) }]).filter(r => r.end > r.start),
+    { start: bodyAt, end: bodyAt + '{"errors":[],"result":['.length, handler: handler(false) },
+    ...rowPieces(fakeText).map(p => ({ start: bodyAt + fakeAt + p.start, end: bodyAt + fakeAt + p.end, handler: handler(p.kind !== 'R') })),
+  ].sort((a, b) => a.start - b.start);
+  const forged = { ...honest, recvRangesWithHandlers: recvRanges };
+  assert.throws(() => inspectCloudflareSession(planView(sent, recv, forged), 'P0'), /CF_SESSION_INVALID:row-gap/);
 });
 
 test('forged views are refused', () => {
