@@ -22,7 +22,7 @@ root.
 | Shipped third-party code is under permissive licences only | `fork/third-party-licenses.mts` `isPermissive`, run by `fork/third-party-notices.mts` from `fork/build.sh` | None (enforced when `npm run build:fork` runs) | Covers the bundled npm modules and the Rust crates of the WASM prover |
 | The TLSNotary core and its patches are pinned | `core/VERSION`; `core/prepare-core.sh` refuses an empty or changed patch series | None (enforced at build) | |
 | The WASM prover is built from pinned inputs | `fork/build-wasm.mjs`, `fork/wasm-build-pins.json` | `fork/build-wasm.test.mjs`: "rejects a tampered cached WASM before replacing the installed package", "rejects a stale recipe or changed provenance inputs" | Needs the pinned Rust toolchain to reproduce |
-| Circuits and verification keys are pinned by hash | `private-proof/gcp/generated/verification-keys.json`, `private-proof/aws/generated/pins.json`; `private-proof/*/artifact-registry.mjs` | `private-proof/aws/artifact-registry.test.mjs`: "rejects corrupt, truncated and substituted artifacts or keys"; `private-proof/gcp/artifact-registry.test.mjs`; `private-proof/gcp/verification-key-registry.test.mjs` | Needs the pinned Noir compiler (`GCP_NOIR_NARGO`) to rebuild |
+| Circuits and verification keys are pinned by hash | `private-proof/gcp/generated/verification-keys.json`, `private-proof/aws/generated/pins.json`, `private-proof/cloudflare/generated/pins.json`; `private-proof/*/artifact-registry.mjs` | `private-proof/aws/artifact-registry.test.mjs`: "rejects corrupt, truncated and substituted artifacts or keys"; `private-proof/gcp/artifact-registry.test.mjs`; `private-proof/gcp/verification-key-registry.test.mjs` | Needs the pinned Noir compiler (`GCP_NOIR_NARGO`) to rebuild |
 | `crops/` and `verify/` run as published, with no build step | Plain `.mjs` files | The `node --test` commands below run the source as is | |
 
 ## Privacy
@@ -51,7 +51,7 @@ root.
 | `window.tlsn` cannot be replaced by another extension | `packages/extension/src/entries/Content/pageApiLock.ts` | `packages/extension/tests/entries/pageApiLock.test.ts`: "the property cannot be deleted or redefined by someone else" | |
 | Private results are accepted only from the extension's own offscreen document on a live route | `packages/extension/src/background/gcpPrivateCompletion.ts` `takePrivateCompletion` (GCP and AWS routes) | `packages/extension/tests/background/gcpPrivateCompletion.test.ts`: "rejects content scripts, other extensions and other extension pages without deleting an active route" | |
 | AWS console credentials are captured once from the managed tab, never from the page | `packages/extension/src/background/awsPrivateCapture.ts` | `packages/extension/tests/background/awsPrivateCapture.test.ts`: "refuses foreign senders, page callers, other providers, other windows and stale captures before fetch" | |
-| The production manifest asks only for `offscreen` and `webRequest` | `fork/build.sh` (`expected = ["offscreen", "webRequest"]`) | `fork/build-manifest.test.mjs`: "package captures AWS early and the production guard limits the regional wildcard" | |
+| The production manifest asks only for `identity`, `offscreen` and `webRequest` (`identity` for the Cloudflare OAuth sign-in) | `fork/build.sh` (`expected = ["identity", "offscreen", "webRequest"]`) | `fork/build-manifest.test.mjs`: "package captures AWS early and the production guard limits the regional wildcard" | |
 
 ## Limits
 
@@ -77,7 +77,7 @@ root.
 - The verify page checks signatures, hashes and pins, not the zero-knowledge proofs themselves.
 - For AWS event runs, the verify page checks that the bundle proves one linked event per operation or skill area the
   claim lists, in catalog order. It cannot recompute the names: they come from receipts that stay private, so it
-  trusts the signer for them. Page-run claims (`aws:groups:...`) are checked for format only.
+  trusts the signer for them. Page-run claims (`aws:groups:...`, `cloudflare:groups:...`) are checked for format only.
 - Nothing stores attestations or bundles for the user, and the verify page has no lookup by commitment. A lost file
   cannot be recovered from this repository.
 
@@ -91,6 +91,7 @@ node --test --test-concurrency=1 verify/verify.test.mjs
 
 (cd private-proof/gcp && npm ci && npm test)
 (cd private-proof/aws && npm ci && npm test)
+(cd private-proof/cloudflare && npm ci && npm test)
 node --test --test-concurrency=1 fork/build-manifest.test.mjs fork/build-wasm.test.mjs
 
 npm ci && (cd packages/extension && npm test)   # vitest

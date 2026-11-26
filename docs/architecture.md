@@ -26,10 +26,10 @@ flowchart LR
       Off["Offscreen document<br/>(QuickJS plugin runner,<br/>WASM prover, private witness)"]
       Worker["Proof worker<br/>(Noir + bb.js)"]
     end
-    Console["Provider console tab<br/>(GCP / AWS)"]
+    Console["Provider console tab<br/>(GCP / AWS / Cloudflare)"]
   end
   Verifier["TLSNotary verifier<br/>(Proxy mode)"]
-  Provider["Provider API<br/>(Google Cloud, AWS)"]
+  Provider["Provider API<br/>(Google Cloud, AWS, Cloudflare)"]
   Backend["Relying application backend"]
   Files["Attestation + optional bundle<br/>(files the user keeps)"]
   VerifyPage["verify/ page"]
@@ -56,12 +56,15 @@ flowchart LR
   single-use route per run. Private results are accepted only from the extension's own offscreen document on a live
   route ([`background/gcpPrivateCompletion.ts`](../packages/extension/src/background/gcpPrivateCompletion.ts)); AWS
   console credentials are captured once from the managed tab, never taken from the page
-  ([`background/awsPrivateCapture.ts`](../packages/extension/src/background/awsPrivateCapture.ts)).
+  ([`background/awsPrivateCapture.ts`](../packages/extension/src/background/awsPrivateCapture.ts)); Cloudflare
+  uses an OAuth (Authorization Code + PKCE) token from `chrome.identity`, held in memory for the run
+  ([`background/cloudflarePrivateAuth.ts`](../packages/extension/src/background/cloudflarePrivateAuth.ts)).
 - **Offscreen document** (`offscreen/`). Runs the plugin in QuickJS and drives the WASM prover.
   [`builtinRun.ts`](../packages/extension/src/offscreen/builtinRun.ts) loads the packaged plugin file, checks its
   sha256 and fills in the run values as string literals only. For private runs,
   [`gcpPrivateWitness.ts`](../packages/extension/src/offscreen/gcpPrivateWitness.ts) and
-  [`awsPrivateWitness.ts`](../packages/extension/src/offscreen/awsPrivateWitness.ts) own the transcript bytes and
+  [`awsPrivateWitness.ts`](../packages/extension/src/offscreen/awsPrivateWitness.ts) and
+  [`cloudflarePrivateWitness.ts`](../packages/extension/src/offscreen/cloudflarePrivateWitness.ts) own the transcript bytes and
   blinders for the run: nothing exposes them through a getter, a message or storage, and they are erased when the
   run settles.
 - **Built-in plugins** ([`constants/builtinPlugins.ts`](../packages/extension/src/constants/builtinPlugins.ts)).
@@ -82,12 +85,12 @@ batch synchronisation, multi-reveal sessions and fixes needed by the private pro
 same patched core. [`fork/build-wasm.mjs`](../fork/build-wasm.mjs) builds the WASM prover from it with a pinned Rust
 toolchain.
 
-### Private proofs (`private-proof/gcp`, `private-proof/aws`)
+### Private proofs (`private-proof/gcp`, `private-proof/aws`, `private-proof/cloudflare`)
 
 Each package holds:
 
 - **Noir circuits** (`circuits/`), compiled with a pinned Noir compiler. Verification-key hashes are pinned in
-  `generated/verification-keys.json` (GCP) and `generated/pins.json` (AWS).
+  `generated/verification-keys.json` (GCP) and `generated/pins.json` (AWS, Cloudflare).
 - **A client plan and in-browser prover** (`client-plan.mjs`, `browser-client.mjs`, `browser-worker.mjs`,
   `proof-runtime*.mjs`). The plan locates each private value in the transcript; the worker proves the circuits with
   `@noir-lang/noir_js` and `@aztec/bb.js` (UltraHonk) inside the browser.
@@ -156,7 +159,7 @@ do this themselves and use the repository root as build context.
 
 | Package | Role |
 | --- | --- |
-| [`crops/proof-bundle`](../crops/proof-bundle) | Canonical JSON, the bundle commitment, Ed25519 attestations, and the adapter from a verified GCP or AWS bundle to commitment fields |
+| [`crops/proof-bundle`](../crops/proof-bundle) | Canonical JSON, the bundle commitment, Ed25519 attestations, and the adapter from a verified GCP, AWS or Cloudflare bundle to commitment fields |
 
 `crops/proof-bundle` is a plain ES module (Node 22+ and current browsers), with no build step.
 
@@ -211,6 +214,9 @@ window, for example `gcp:observed:g1,g4`. For AWS it is one of, with a 90-day wi
 - `aws:groups:<positions>:iam-user`, 1-based skill-group positions, for page runs;
 - the legacy `aws:iam-role-trust-update:iam-user`, still accepted.
 
+For Cloudflare it is `cloudflare:groups:<positions>:user`, 1-based skill-group positions, with a 90-day window; see
+[`private-proof/cloudflare/README.md`](../private-proof/cloudflare/README.md).
+
 The claim format admits only lowercase words, digits and separators
 ([`commitment.mjs`](../crops/proof-bundle/commitment.mjs)), so no free text or identifier fits.
 
@@ -262,9 +268,10 @@ circuits and workers, the pinned WASM prover, upstream's webpack build, the buil
 | `FORK_EXTRA_HOSTS` | Comma-separated extra host match patterns (`https://host/path*`) for content scripts and host access, for example for those navigation targets. Default none |
 | `GCP_NOIR_NARGO` | The pinned Noir compiler (default: `nargo` on `PATH`) |
 
-Host access is fixed to the GCP and AWS console and API hosts the private proofs use, the product origins, and
+Host access is fixed to the GCP, AWS and Cloudflare (`dash.cloudflare.com`, `api.cloudflare.com`) console and API hosts the private proofs use, the product origins, and
 `FORK_EXTRA_HOSTS`. The verifier is reached by WebSocket from the offscreen document and needs no host permission.
-The build checks the final manifest permissions (`offscreen`, `webRequest` only).
+The build checks the final manifest permissions (`identity`, `offscreen`, `webRequest` only; `identity` is for the
+Cloudflare OAuth sign-in, whose client id comes from `FORK_CF_OAUTH_CLIENT_ID`).
 
 ## Repository layout
 
@@ -275,6 +282,7 @@ packages/extension/   the extension (upstream + fork changes)
 packages/plugin-sdk/  plugin SDK (upstream + fork changes)
 private-proof/gcp/    GCP circuits, client plan, browser prover, bundle verifier
 private-proof/aws/    AWS circuits, client plan, browser prover, bundle verifier
+private-proof/cloudflare/  Cloudflare circuits, session plan, browser prover, bundle verifier
 crops/proof-bundle/   commitment and attestations
 verify/               static verify page and keys.json
 servers/verifier/     upstream TLSNotary verifier server

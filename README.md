@@ -4,7 +4,7 @@
 >
 > On top of upstream, this fork adds:
 > - zero-knowledge private proofs generated in the browser, so raw data never leaves the user's machine
->   (`private-proof/`)
+>   (`private-proof/`: Google Cloud, AWS and Cloudflare)
 > - built-in plugins, an origin-gated page API and proving-flow changes (`packages/extension`, `packages/plugin-sdk`)
 > - a pinned, patched TLSNotary core for the WASM prover (`core/`) and an in-place build kit (`fork/`)
 >

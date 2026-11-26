@@ -55,7 +55,7 @@ toolchain pinned by `fork/wasm-build-pins.json`.
 
 | Third party | What it learns |
 | --- | --- |
-| Provider (Google Cloud, AWS) | An ordinary session from the user's browser, as if the user browsed the console |
+| Provider (Google Cloud, AWS, Cloudflare) | An ordinary session from the user's browser, as if the user browsed the console |
 | TLSNotary verifier (Proxy mode) | The user's IP address, the hosts contacted, timing and traffic sizes, the revealed HTTP framing, and private values only as blinded commitments `sha256(value ‖ blinder)` |
 | Relying application | The coarse claim, the proof bundle and the verifier's receipts (framing and commitments), never the private values |
 | Anyone the user shares the files with | The coarse claim, the commitment, the signed attestation, and, only if shared, the public bundle (proofs and public inputs: blinded hashes, lengths of hidden values, the time cutoff) |

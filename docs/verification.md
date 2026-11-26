@@ -24,7 +24,7 @@ All checks live in [`verify/verify.mjs`](../verify/verify.mjs) (no DOM, no netwo
 | Signed by a listed verifier key, unexpired, and the commitment recomputes from its fields | A verifier you accept signed exactly this claim, proof hash and pins, and the attestation has not expired |
 | Published proof bundle hashes to the signed proof hash | The bundle in the file is the one the signer saw |
 | Verification keys are the ones pinned in this repository | The proofs were made for these circuits, with these keys, and no others |
-| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private) |
+| Claim matches the proven public inputs | The claim is not just a label: for GCP the observed groups and window are recomputed from the public inputs; for AWS event runs the bundle proves one linked event per operation or skill area the claim lists, and they are known and in catalog order (the names themselves come from receipts that stay private); Cloudflare claims (`cloudflare:groups:<positions>:user`) are checked for format and known skill-group positions |
 
 Results:
 
@@ -78,7 +78,7 @@ The page is static, but it imports files from outside `verify/`, so serve the **
 
 - `verify/` (page, `keys.json`);
 - `crops/proof-bundle/`;
-- `private-proof/gcp/policy.mjs`, `private-proof/gcp/generated/` and `private-proof/aws/generated/` (pinned keys and
+- `private-proof/gcp/policy.mjs`, `private-proof/gcp/generated/` and `private-proof/aws/generated/`, `private-proof/cloudflare/generated/` and `private-proof/cloudflare/skill-groups.mjs` (pinned keys and
   the GCP batch layout).
 
 Locally:
