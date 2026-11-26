@@ -1,6 +1,6 @@
 import { createHash, webcrypto } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AwsPrivateWitnessRun, AWS_PRIVATE_TIMEOUT_MS } from '../../src/offscreen/awsPrivateWitness';
+import { AwsPrivateWitnessRun, AWS_PRIVATE_TIMEOUT_MS, awsPrivateAttemptParam } from '../../src/offscreen/awsPrivateWitness';
 import * as awsClient from '../../src/aws-private/browser-client.mjs';
 import type { AwsPrivateModule } from '../../src/aws-private/browser-client.mjs';
 import type { GcpPrivateWitness } from '../../src/offscreen/gcpPrivateWitness';
@@ -17,7 +17,7 @@ const plan = () => Object.fromEntries(['sent', 'recv'].map(direction => [`${dire
 const bundle = () => ({ kind: 'AWS_PRIVATE_RESULT', version: 1, sessionIds: [...ids], proofs:
   ['aws-identity-link-v1', 'aws-event-link-v1'].map((circuitId, index) => ({ circuitId, proof: 'AQID',
     publicInputs: Array(index === 0 ? 264 : 199).fill('0') })) });
-const module = (): AwsPrivateModule => ({ getRevealPlan: vi.fn(plan), clear: vi.fn(), prove: vi.fn().mockResolvedValue(bundle()) });
+const module = (): AwsPrivateModule => ({ getRevealPlan: vi.fn(plan), selectPages: vi.fn(), clear: vi.fn(), prove: vi.fn().mockResolvedValue(bundle()) });
 const buffers = (w: GcpPrivateWitness) => [w.sent, w.recv, ...[...w.openings.sent, ...w.openings.recv].flatMap(o => [o.hash, o.blinder])];
 const runs: AwsPrivateWitnessRun[] = [];
 const create = (local = module(), context = attempt()) => {
@@ -50,6 +50,20 @@ it('never collects after cancellation and erases a late credential response with
   await expect(pending).rejects.toThrow('AWS_PRIVATE_COLLECTION_FAILED');
   expect(Object.values(credentials).every(value => value === '')).toBe(true);
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('takes the plugin attempt with optional job groups and hands them to the local selection', async () => {
+  const base = attempt(), sha = runData.pluginSha256;
+  expect(awsPrivateAttemptParam(base, proofId, sha)).toBe(base);
+  const named = { ...base, jobGroups: ['lambda', 'iam-access'] };
+  expect(awsPrivateAttemptParam(named, proofId, sha)).toBe(named);
+  for (const bad of [{ ...base, jobGroups: [] }, { ...base, jobGroups: 'lambda' }, { ...base, jobGroups: ['Lambda'] }, { ...base, jobGroups: [1] },
+    { ...base, jobGroups: Array(65).fill('lambda') }, { ...base, extra: 1 }, { ...base, proofId: ids[0] }, { ...base, pluginSha256: 'c'.repeat(64) },
+    null, [base]])
+    expect(() => awsPrivateAttemptParam(bad, proofId, sha)).toThrow('AWS_PRIVATE_PROVING_FAILED');
+  const session = vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ prepare: vi.fn().mockResolvedValue([]), clear: vi.fn() } as never);
+  await expect(create(module(), named).collect(async () => ({ credentials: {} }) as never)).rejects.toThrow();
+  expect(session.mock.calls[0][0].attempt.jobGroups).toEqual(['lambda', 'iam-access']);
 });
 
 it('binds the approved private method, plugin, request, nonce, IAM service and expiry', () => {
@@ -212,5 +226,60 @@ it('logs one fixed collection stage code to the offscreen console, never a value
   warn.mockClear();
   await create().collect(async () => ({ credentials: {} }) as never);
   expect(warn.mock.calls).toEqual([['AWS_OFF_COLLECT_OK_2']]);
+  vi.restoreAllMocks();
+});
+
+it('page runs: P0.. steps, the local row selection handed to the planner, gaps only in a page response', async () => {
+  const pageBody = JSON.stringify({ LookupAttributes: [{ AttributeKey: 'Username', AttributeValue: 'x' }] });
+  const rows = { P0: ['00000000-0000-4000-8000-000000000001'], P1: ['00000000-0000-4000-8000-000000000002'] };
+  vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ clear: vi.fn(), pageRows: () => rows,
+    prepare: vi.fn().mockResolvedValue([{}, { body: pageBody }, { body: pageBody }]) } as never);
+  // A page response: the plan authenticates its first bytes and leaves the rest a gap.
+  const page = new Uint8Array(200_000).fill(65), head = 16;
+  const local = module();
+  local.getRevealPlan = vi.fn((meta: { step: string }) => (meta.step === 'identity' ? plan() : {
+    sentRangesWithHandlers: [{ start: 0, end: bytes().length, handler: { type: 'SENT', part: 'ALL', action: { kind: 'REVEAL' } } }],
+    recvRangesWithHandlers: [{ start: 0, end: head, handler: { type: 'RECV', part: 'BODY', action: { kind: 'REVEAL' } } }],
+  })) as never;
+  const sessionIds = [ids[0], '44444440-4444-4444-8444-444444444444', '44444441-4444-4444-8444-444444444444'];
+  local.prove = vi.fn().mockResolvedValue({ ...bundle(), sessionIds });
+  const run = create(local);
+  expect(run.recvLimit('P0')).toBe(307200);
+  expect(run.recvLimit('E0')).toBe(16384);
+  expect(await run.collect(async () => ({ credentials: {} }) as never)).toHaveLength(3);
+  expect(local.selectPages).toHaveBeenCalledWith(rows);
+  await (await prepare(run, 0)).accept();
+  for (const [index, step] of ['P0', 'P1'].entries()) {
+    run.begin({ ...runData, nonceMac: 'b'.repeat(43), step }, host(1), false);
+    await run.selectRanges(sessionIds[index + 1], host(1), bytes(), page, () => { throw new Error('Must use AWS planner'); });
+    const text = new TextDecoder().decode(page.subarray(0, head));
+    await run.accept(sessionIds[index + 1], host(1), bytes(), page, { sent: [], recv: [] }, { results: [
+      { type: 'SENT', part: 'ALL', action: { kind: 'REVEAL' }, value: new TextDecoder().decode(bytes()) },
+      { type: 'RECV', part: 'BODY', action: { kind: 'REVEAL' }, value: text }] });
+  }
+  expect(await run.finish()).toEqual({ ...bundle(), sessionIds });
+  // An event step keeps full coverage and the small limit.
+  const strict = create();
+  vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ clear: vi.fn(), prepare: vi.fn().mockResolvedValue([{}, {}]) } as never);
+  await strict.collect(async () => ({ credentials: {} }) as never);
+  await (await prepare(strict, 0)).accept();
+  strict.begin(session(1), host(1), false);
+  await expect(strict.selectRanges(ids[1], host(1), bytes(), page, () => plan() as never)).rejects.toThrow();
+});
+
+it('page sessions must reach the CloudTrail host of their own Region', async () => {
+  const pageBody = JSON.stringify({ LookupAttributes: [{ AttributeKey: 'Username', AttributeValue: 'x' }] });
+  const page = (url: string) => ({ url, body: pageBody });
+  vi.spyOn(awsClient, 'createAwsLocalSession').mockReturnValue({ clear: vi.fn(), pageRows: () => ({ P0: ['00000000-0000-4000-8000-000000000001'], P1: ['00000000-0000-4000-8000-000000000002'] }),
+    prepare: vi.fn().mockResolvedValue([{}, page('https://cloudtrail.eu-west-1.amazonaws.com/'), page('https://cloudtrail.attacker.invalid/')]) } as never);
+  const run = create();
+  await run.collect(async () => ({ credentials: {} }) as never);
+  await (await prepare(run, 0)).accept();
+  // P0 reads eu-west-1: the us-east-1 host is refused, the eu-west-1 host accepted.
+  expect(() => run.begin({ ...runData, nonceMac: 'b'.repeat(43), step: 'P0' }, 'cloudtrail.us-east-1.amazonaws.com', false)).toThrow();
+  const other = create();
+  await other.collect(async () => ({ credentials: {} }) as never);
+  await (await prepare(other, 0)).accept();
+  expect(() => other.begin({ ...runData, nonceMac: 'b'.repeat(43), step: 'P0' }, 'cloudtrail.eu-west-1.amazonaws.com', false)).not.toThrow();
   vi.restoreAllMocks();
 });

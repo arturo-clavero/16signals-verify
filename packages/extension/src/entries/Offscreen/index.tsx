@@ -10,7 +10,7 @@ import { runSessionData } from '../../offscreen/pluginHash';
 import { createGcpPrivateModule, readCloudLink } from '../../gcp-private/browser-client.mjs';
 import { gcpPrivateDiagnostic } from '../../offscreen/gcpPrivateWitness';
 import { createAwsPrivateModule } from '../../aws-private/browser-client.mjs';
-import { AwsPrivateWitnessRun, awsOffscreenStage } from '../../offscreen/awsPrivateWitness';
+import { AwsPrivateWitnessRun, awsOffscreenStage, awsPrivateAttemptParam } from '../../offscreen/awsPrivateWitness';
 
 const OffscreenApp: React.FC = () => {
   useEffect(() => {
@@ -90,11 +90,7 @@ const OffscreenApp: React.FC = () => {
               if ('error' in effective) { linkSecret?.fill(0); throw new Error(); }
               activeCode = effective.code;
               if (aws) {
-                const attempt = params?.privateAttempt;
-                const keys = ['proofId', 'pluginSha256', 'nonceMac', 'identityService', 'region', 'issuedAt', 'expiresAt'];
-                if (!attempt || typeof attempt !== 'object' || Array.isArray(attempt) ||
-                    Object.keys(attempt).length !== keys.length || !keys.every(key => Object.hasOwn(attempt, key)) ||
-                    attempt.proofId !== request.requestId || attempt.pluginSha256 !== prepared.sha256) throw new Error();
+                const attempt = awsPrivateAttemptParam(params?.privateAttempt, request.requestId, prepared.sha256);
                 const module = createAwsPrivateModule({ attempt, fastSource, linkSecret: linkSecret ?? undefined, workerUrl: browser.runtime.getURL('aws-private/browser-worker.js'),
                   onProgress: ({ completedProofs }) => {
                     browser.runtime.sendMessage({ type: 'PLUGIN_PROGRESS', requestId: request.requestId,

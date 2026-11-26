@@ -45,6 +45,8 @@ interface PrivateWitnessPolicy {
   nonceMac?: string;
   proveTimeoutMs: number;
   identityResult?(witness: Readonly<GcpPrivateWitness>): Record<string, string>;
+  /** Steps whose response is a large page proven in part: up to PAGE_BYTES, gaps outside the planned ranges. */
+  pageSteps?: readonly string[];
   /** GCP-only observability. The shared owner emits nothing when a policy omits it. */
   diagnostic?(code: AcceptDiagnostic): void;
   finish(result: unknown, sessionIds: string[]): unknown;
@@ -77,14 +79,19 @@ export function clearGcpOpenings(openings: RevealOutput | undefined): void {
   }
 }
 
-/** Labels are metadata, not evidence of HTTP or JSON semantics. Require complete byte coverage. */
-function partition(ranges: RevealRangeWithHandler[], length: number, direction: 'SENT' | 'RECV') {
-  if (!Number.isSafeInteger(length) || length < 1 || length > 16384 ||
-      !Array.isArray(ranges) || !ranges.length || ranges.length > 256) fail();
+/** Largest page response a page step may receive (the plugin's maxRecvData for it). */
+export const PAGE_BYTES = 307200;
+/**
+ * Labels are metadata, not evidence of HTTP or JSON semantics. Require complete byte coverage, except in a page
+ * response (`gaps`), whose unplanned bytes stay unauthenticated and are never revealed.
+ */
+function partition(ranges: RevealRangeWithHandler[], length: number, direction: 'SENT' | 'RECV', gaps = false) {
+  if (!Number.isSafeInteger(length) || length < 1 || length > (gaps ? PAGE_BYTES : 16384) ||
+      !Array.isArray(ranges) || !ranges.length || ranges.length > (gaps ? 512 : 256)) fail();
   let end = 0;
   const result = ranges.map(range => {
     if (!range || !Number.isSafeInteger(range.start) || !Number.isSafeInteger(range.end) ||
-        range.start !== end || range.end <= range.start || range.end > length) fail();
+        (gaps ? range.start < end : range.start !== end) || range.end <= range.start || range.end > length) fail();
     const handler = canonicalizeHandler(range.handler);
     if (handler.type !== direction || !PARTS.includes(handler.part) ||
         (handler.part === 'ALL' && (range.start !== 0 || range.end !== length)) ||
@@ -97,12 +104,12 @@ function partition(ranges: RevealRangeWithHandler[], length: number, direction: 
     return Object.freeze({ start: range.start, end: range.end,
       handler: Object.freeze({ type: direction, part: handler.part, action: Object.freeze(action) }) });
   });
-  if (end !== length) fail();
+  if (!gaps && end !== length) fail();
   return Object.freeze(result) as unknown as RevealRangeWithHandler[];
 }
-function derive(plan: GcpPrivateRevealPlan, sent: Uint8Array, recv: Uint8Array): ComputedRanges {
+function derive(plan: GcpPrivateRevealPlan, sent: Uint8Array, recv: Uint8Array, page = false): ComputedRanges {
   const sentHandlers = partition(plan.sentRangesWithHandlers, sent.length, 'SENT');
-  const recvHandlers = partition(plan.recvRangesWithHandlers, recv.length, 'RECV');
+  const recvHandlers = partition(plan.recvRangesWithHandlers, recv.length, 'RECV', page);
   const reveal = (ranges: RevealRangeWithHandler[]) => ranges.filter(r => canonicalizeHandler(r.handler).action.kind === 'REVEAL')
     .map(({ start, end }) => ({ start, end }));
   const commit = (ranges: RevealRangeWithHandler[]) => ranges.filter(r => canonicalizeHandler(r.handler).action.kind === 'HASH')
@@ -130,6 +137,14 @@ export class PrivateWitnessRun {
     this.run = { ...run };
     this.nonceMac = policy.nonceMac;
   }
+  /** Largest response the next session of `step` may receive. */
+  recvLimit(step: string | undefined): number {
+    return step !== undefined && this.policy.pageSteps?.includes(step) ? PAGE_BYTES : 16384;
+  }
+  private pageStep(): boolean {
+    const step = this.policy.steps[this.witnesses.length]?.step;
+    return step !== undefined && (this.policy.pageSteps?.includes(step) ?? false);
+  }
   begin(session: Record<string, string>, serverName: string, relay: boolean): void {
     const expected = this.policy.steps[this.witnesses.length];
     if (this.closed || this.activeHost || !expected || relay || session.mode !== 'Proxy' ||
@@ -145,7 +160,7 @@ export class PrivateWitnessRun {
     fallback: () => ComputedRanges | Promise<ComputedRanges>): Promise<ComputedRanges> {
     if (this.closed || this.selection || this.activeSessionId || !sessionId || !UUID.test(sessionId) ||
         this.activeHost !== serverName || this.witnesses.some(w => w.sessionId.toLowerCase() === sessionId.toLowerCase()) ||
-        !sent.length || !recv.length || sent.length > 16384 || recv.length > 16384) fail();
+        !sent.length || !recv.length || sent.length > 16384 || recv.length > (this.pageStep() ? PAGE_BYTES : 16384)) fail();
     this.activeSessionId = sessionId;
     let ranges: ComputedRanges;
     if (this.module.getRevealPlan) {
@@ -155,7 +170,7 @@ export class PrivateWitnessRun {
         const plan = await this.module.getRevealPlan(Object.freeze({ sessionId, serverName,
           step: this.policy.steps[this.witnesses.length].step, proofId: this.run.proofId, nonceMac: this.nonceMac! }), copies);
         if (this.closed) fail();
-        ranges = derive(plan, sent, recv);
+        ranges = derive(plan, sent, recv, this.pageStep());
       } finally {
         copies.sent.fill(0); copies.recv.fill(0);
         if (this.planning === copies) this.planning = undefined;
@@ -166,7 +181,7 @@ export class PrivateWitnessRun {
   }
   checkRanges(sent: Uint8Array, recv: Uint8Array, ranges: ComputedRanges): void {
     if (this.closed || this.selection) fail();
-    const checked = derive(ranges, sent, recv);
+    const checked = derive(ranges, sent, recv, this.pageStep());
     if (JSON.stringify(ranges.sentRanges) !== JSON.stringify(checked.sentRanges) ||
         JSON.stringify(ranges.recvRanges) !== JSON.stringify(checked.recvRanges) ||
         JSON.stringify(ranges.commit ?? { sent: [], recv: [] }) !== JSON.stringify(checked.commit)) fail();
@@ -201,8 +216,9 @@ export class PrivateWitnessRun {
         ['RECV', witness.recv, witness.selections.recv, openings.recv, witness.openings.recv],
       ] as const) {
         stage = 'OPENINGS';
+        const gaps = direction === 'RECV' && (this.policy.pageSteps?.includes(witness.step) ?? false);
         if (!Array.isArray(source) || source.length !== ranges.filter(r => canonicalizeHandler(r.handler).action.kind === 'HASH').length ||
-            ranges[ranges.length - 1].end !== bytes.length) fail();
+            (gaps ? ranges[ranges.length - 1].end > bytes.length : ranges[ranges.length - 1].end !== bytes.length)) fail();
         const byDigest = new Map<string, Opening>();
         for (const opening of source) {
           validateOpening(opening);

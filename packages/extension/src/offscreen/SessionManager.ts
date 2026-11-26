@@ -250,8 +250,8 @@ export class SessionManager {
         // supports both: in Proxy mode the verifier browser opens the server TCP
         // (through its own proxy) and the prover tunnels through the verifier.
         const mode = (sessionData.mode as 'Mpc' | 'Proxy') ?? 'Mpc';
-        if (privateRun && [proverOptions.maxSentData ?? 4096, proverOptions.maxRecvData ?? 16384]
-          .some(limit => !Number.isSafeInteger(limit) || limit <= 0 || limit > 16384)) {
+        if (privateRun && [[proverOptions.maxSentData ?? 4096, 16384], [proverOptions.maxRecvData ?? 16384, privateRun.recvLimit(sessionData.step)]]
+          .some(([limit, max]) => !Number.isSafeInteger(limit) || limit <= 0 || limit > max)) {
           throw new Error('GCP_PRIVATE_PROOF_INVALID');
         }
         privateRun?.begin(sessionData, url.hostname, isRelay);
