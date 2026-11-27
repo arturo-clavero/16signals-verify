@@ -1,8 +1,8 @@
 # Releasing the npm packages
 
 Three packages are published from this repository under the `@16signals-verify` scope. They share one version and are
-released together by [`.github/workflows/release.yml`](../.github/workflows/release.yml). They are **not published
-yet**; the workflow does nothing until the steps below are done and a tag is pushed.
+released together by [`.github/workflows/release.yml`](../.github/workflows/release.yml), which runs when an `npm-v*` tag
+is pushed and needs the `NPM_TOKEN` secret below.
 
 | Package | Folder | Depends on |
 | --- | --- | --- |
@@ -59,3 +59,11 @@ The workflow publishes them in that order, with [provenance](https://docs.npmjs.
 
 A version cannot be published twice. If a publish fails halfway, fix the cause, bump the patch version of every
 package and tag again.
+
+## Publishing from a laptop
+
+Without the workflow, publish each folder in the order above with
+`npm publish --access public --provenance=false` (provenance is only possible from CI). An account whose only second
+factor is a security key cannot answer the command line's one-time-password prompt; use a granular token with
+*Bypass two-factor authentication* instead. npm then holds each version as *staged* until a maintainer approves it on
+the package page with the security key; it installs a few minutes after approval.

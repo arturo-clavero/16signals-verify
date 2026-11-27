@@ -171,7 +171,7 @@ Each provider module default-exports a descriptor. Registry entries are for the 
 
 ## CLI
 
-The package is not published yet. After the release (until then, `node packages/proof-check/cli.mjs` here):
+Install from npm (inside this repository, `node packages/proof-check/cli.mjs` does the same):
 
 ```sh
 npm i -g @16signals-verify/proof-check                    # or npx -p @16signals-verify/proof-check proof-check ...

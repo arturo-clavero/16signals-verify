@@ -43,7 +43,7 @@ A provider that only needs checking, not generating, needs just the descriptor a
 
 ## The npm package
 
-This folder is also the `@16signals-verify/providers` package (not published yet; see
+This folder is also the `@16signals-verify/providers` package (on npm; see
 [docs/releasing.md](../docs/releasing.md)). It ships only the checking side: each provider's `descriptor.mjs` and what
 it imports (pinned keys in `generated/`, catalogs, hosts), no circuits, prover code or tests.
 

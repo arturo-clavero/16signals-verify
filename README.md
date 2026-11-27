@@ -1,5 +1,9 @@
 # 16signals-verify
 
+[![npm proof-check](https://img.shields.io/npm/v/@16signals-verify/proof-check?label=%4016signals-verify%2Fproof-check)](https://www.npmjs.com/package/@16signals-verify/proof-check)
+[![npm providers](https://img.shields.io/npm/v/@16signals-verify/providers?label=%4016signals-verify%2Fproviders)](https://www.npmjs.com/package/@16signals-verify/providers)
+[![npm bnb-anchor](https://img.shields.io/npm/v/@16signals-verify/bnb-anchor?label=%4016signals-verify%2Fbnb-anchor)](https://www.npmjs.com/package/@16signals-verify/bnb-anchor)
+
 Prove facts about an AWS, Google Cloud or Cloudflare account without sharing credentials or raw data. A person signs in
 to the provider in their own browser. An extension collects evidence from that session and turns it into a small,
 signed claim, for example "this user changed IAM roles and Lambda functions in the last 90 days". Anyone can re-check
@@ -50,9 +54,9 @@ proof system.
 
 ## What can another project reuse?
 
-Three npm packages are prepared but **not published yet** (publishing is pending; see
-[docs/releasing.md](docs/releasing.md)). Until then, use them from this repository (npm workspaces); the examples below
-import from the repository.
+Three packages are published on npm (see [docs/releasing.md](docs/releasing.md) for how they are released). Inside
+this repository they are npm workspaces, so the longer examples below import from the repository paths; outside it,
+import the package names instead.
 
 | Package | Folder | What it is |
 | --- | --- | --- |
@@ -60,7 +64,7 @@ import from the repository.
 | `@16signals-verify/providers` | [`private-proof`](private-proof) | The GCP, AWS and Cloudflare descriptors and their pinned keys (`./gcp`, `./aws`, `./cloudflare`) |
 | `@16signals-verify/bnb-anchor` | [`packages/bnb-anchor`](packages/bnb-anchor) | Anchor attestations on BNB Chain; a proof-check registry and the `bnb-anchor` CLI |
 
-After the release, installing looks like this (these commands do not work yet):
+Install and check a proof package:
 
 ```sh
 npm i @16signals-verify/proof-check            # brings @16signals-verify/providers
