@@ -17,6 +17,30 @@ the result offline. The proof can optionally be anchored on BNB Chain.
 > Licensed like upstream: MIT or Apache-2.0, at your option ([`LICENSE-MIT`](LICENSE-MIT),
 > [`LICENSE-APACHE`](LICENSE-APACHE)).
 
+## Try it
+
+Check a sample Google Cloud proof package with the published checker (Node 22+, no clone needed):
+
+```sh
+B=https://raw.githubusercontent.com/arturo-clavero/16signals-verify/main/packages/proof-check/test-fixtures/proof-package
+curl -sO $B/gcp-zk-package.json -sO $B/did.json
+npx -p @16signals-verify/proof-check proof-check --proof gcp-zk-package.json --did did.json
+```
+
+```text
+ok   receipt-signature: Every receipt is signed by the key in the issuer's DID document (1 receipt(s) signed by did:web:verifier.test.invalid#tlsn-attestor)
+ok   server-name: Every receipt names a host of the provider (accounts.google.com)
+ok   signed-root: The published pieces rebuild the signed Merkle root (1 run(s): 0 disclosed, 6 committed and 1 hidden leaves)
+n/a  claim-from-data: ... (the package names no claim)
+ok   zk-proofs: The zero-knowledge proofs verify and open every signed commitment (1 proofs verify under the pinned keys and open the 6 signed commitments)
+n/a  on-chain: ... (no registry configured: on-chain anchoring is optional)
+verified 76be145fc33ad00bd651db69a50825854af00ca4fc97bef8843edddf7c8918a4
+```
+
+The same checks run in the [verify page](verify/), a static website where anyone can drop a proof:
+
+<p align="center"><img src="docs/images/verify-page.png" alt="The verify page after checking the sample proof package: every check passes" width="640"></p>
+
 ## The big picture
 
 Two jobs, kept apart:
@@ -128,7 +152,7 @@ Only `id` is required in a descriptor. Details and the exact shapes are in
 
 This is a separate integration. You can reuse the extension flows, but you configure your own site origin and
 verifier: copy [`fork/config.example.env`](fork/config.example.env) to `fork/config.env` and build the extension for
-your site ([Plug it into your project](#plug-it-into-your-project)). Cloudflare proofs need your own OAuth client
+your site ([Plug it into your project](docs/integration.md)). Cloudflare proofs need your own OAuth client
 (`FORK_CF_OAUTH_CLIENT_ID`). A genuinely new kind of proof (a new provider or a new claim) needs new circuits, a new
 plugin and a new descriptor.
 
@@ -146,77 +170,16 @@ plugin and a new descriptor.
 
 ## Plug it into your project
 
-A runnable version of these steps, from sign-in to a checked proof package: [examples/demo](examples/demo/README.md).
+1. **Run a TLS verifier** ([`servers/verifier`](servers/verifier), Docker) with an Ed25519 attestor key, so every
+   proof comes with a signed receipt.
+2. **Build the extension for your site** (`fork/config.env`: your origin, key file, Cloudflare OAuth client).
+3. **Request a proof from your page** with `window.tlsn.runBuiltIn({ pluginId, ... })`.
+4. **Build the proof package in your backend** from the verifier's webhooks (`buildPackage`), and optionally sign an
+   attestation.
+5. **Check it** with `proof-check`, optionally **anchor it on BNB Chain** and **host the verify page**.
 
-1. **Run a TLS verifier.** Build and run it with Docker (the build context is the repository root). The webhook
-   file maps the provider host to your backend; `*` matches any host.
-
-   ```sh
-   docker build -f servers/verifier/Dockerfile -t tlsn-verifier-server .
-   docker run -p 7047:7047 \
-     -v "$PWD/my-config.yaml:/app/config.yaml" \
-     -v "$PWD/attestor-key.json:/run/attestor-key.json:ro" \
-     -e TLSN_ATTESTOR_KEY_FILE=/run/attestor-key.json \
-     -e TLSN_ATTESTOR_KID='did:web:verifier.example.com#tlsn-attestor' \
-     tlsn-verifier-server
-   ```
-
-   `my-config.yaml` holds `webhooks: { "*": { url: "https://your-backend.example.com/webhook" } }`. With an attestor
-   key (an Ed25519 JWK) every webhook payload also carries a signed `receipt`; without one it carries none. Key
-   format, the `did:web` setup and the limits (`TLSN_MAX_SESSIONS`, `TLSN_MEMORY_BUDGET_MB`, ...) are in
-   [servers/verifier/README.md](servers/verifier/README.md). The built-in proxy is at `ws://<host>:7047/proxy`.
-
-2. **Build the extension for your site.** Set `FORK_PRODUCT_ORIGINS` (your page's origin), `FORK_KEY_FILE` and, for
-   Cloudflare, `FORK_CF_OAUTH_CLIENT_ID` in `fork/config.env`, then
-   `npm ci && npm run build:fork`. Load `fork/out/extension` unpacked. With an empty config you get a development
-   build for pages on `http://localhost:5173` or `:5175`. See [Build for your site](docs/architecture.md#build-for-your-site).
-
-3. **Request a proof from your page.** On an allowed origin, in the top frame:
-
-   ```js
-   window.postMessage({ type: 'TLSN_RUN_BUILTIN', payload: {
-     pluginId: 'gcp-work',            // or 'aws-private-work', 'cloudflare-private-work'
-     fingerprint,                     // sha256 of the packaged plugin, from window.tlsn.builtInPlugins
-     verifierUrl, proxyUrl,           // your verifier and its proxy
-     params: JSON.stringify(params),  // the plugin's parameters
-     requestId,                       // your id; every reply carries it
-     sessionData,                     // optional, string values
-   } }, window.location.origin);
-   ```
-
-   `window.tlsn.runBuiltIn({...})` wraps this and returns the result or rejects with an error. Replies are window
-   messages with your `requestId`: `TLSN_RUN_BUILTIN_ACK` (private runs), progress events, then
-   `TLSN_RUN_BUILTIN_RESPONSE` with `{ success, result }` or `{ success: false, error }`. No ACK within 10 seconds
-   means the extension is missing or was reloaded.
-
-4. **Build the proof package in your backend.** Check the proof bundle against the verifier's receipts with the
-   provider's `verify-bundle.mjs`, then build the package from the webhooks with `webhookRun` and `buildPackage`
-   from `proof-check` (see [building a package](packages/proof-check/README.md#building-a-package)). To publish a
-   signed attestation as well, use `fromVerifiedBundle`, `createAttestation` and `signAttestation`
-   ([publishing side](packages/proof-check/README.md#publishing-side)).
-
-5. **Check a proof.**
-
-   ```sh
-   node packages/proof-check/cli.mjs --proof package.json --did did.json   # did.json: your verifier's DID document
-   node packages/proof-check/cli.mjs attestation.json --bundle bundle.json  # a signed attestation
-   ```
-
-   It prints one line per check. Exit code 0 means all checks passed, 1 a check failed, 2 bad input.
-
-6. **Optional: anchor on BNB Chain.**
-
-   ```sh
-   cd packages/bnb-anchor              # after the root npm ci
-   export BNB_PRIVATE_KEY=0x...        # funded account; BNB_NETWORK=bsc for mainnet (default: bsc-testnet)
-   node cli.mjs register               # once per network
-   node cli.mjs publish attestation.json
-   node cli.mjs read 0x<uid>
-   ```
-
-7. **Optional: host the verify page.** Serve the repository root and open `/verify/`
-   (`python3 -m http.server 8080`, then `http://localhost:8080/verify/`). Put your verifier's public key in
-   `verify/keys.json`. See [verify/README.md](verify/README.md).
+Every command and option: [docs/integration.md](docs/integration.md). A runnable version, from sign-in to a checked
+proof package: [examples/demo](examples/demo/README.md).
 
 ## Architecture
 
@@ -277,29 +240,21 @@ flowchart LR
 
 ### How it works technically
 
-- **TLSNotary.** The extension runs a TLS session with the provider through a TLSNotary verifier, so the verifier
-  can vouch for what the provider sent without learning the private parts. These proofs use the verifier's Proxy
-  mode: the verifier opens the connection to the provider and the browser tunnels its TLS session through it. The
-  core is pinned and patched ([`core/`](core)).
-- **Selective disclosure.** Fixed text such as HTTP framing is revealed. Each private value is hashed with a random
-  blinder, `sha256(value || blinder)`, and only the hash goes to the verifier.
-- **Private ranges as commitments.** For each hash-committed range, the verifier's signed receipt (v2) holds a commit
-  leaf over the digest it checked for exactly that range. That ties the commitment a zero-knowledge proof later opens
-  to the TLS session. See [Signed receipts](servers/verifier/README.md#signed-receipts).
-- **Noir circuits and pinned keys.** Circuits prove, in the browser, that the committed values have the right
-  structure and meet the policy (for example a log entry is inside the window). Their verification keys are pinned by
-  hash in each provider's `generated/` folder, and the pins are checked by `proof-check`.
-- **Proof packages.** A package holds, per TLS session, the verifier's signed receipt, the leaf layout, the disclosed
-  bytes with their salts, the commitments and the zero-knowledge proofs. `proof-check` rebuilds the signed root from
-  them, checks each server name against the provider's hosts, and re-runs the proofs with bb.js (browser or Node),
-  requiring their commitment inputs to equal the signed commit leaves. See
-  [packages/proof-check/README.md](packages/proof-check/README.md).
-- **Attestations and the bundle commitment.** The backend signs an Ed25519 attestation over a commitment: the
-  `sha256` of the canonical JSON of the provider, the claim, the proof hash (hash of the public bundle), and the
-  key hashes. See [docs/architecture.md](docs/architecture.md#data-flow-of-a-cloud-private-proof).
-- **BAS schema.** Anchoring writes one record per attestation to the BNB Attestation Service with the schema
-  `bytes32 commitment,string provider,string claim,uint16 window,string attestation`. See
-  [docs/bnb.md](docs/bnb.md).
+- **zkTLS (TLSNotary, Proxy mode).** The browser runs an ordinary TLS 1.2 session with the provider, tunnelled through
+  the TLS verifier, which records the encrypted records. Afterwards the browser proves to the verifier, in an
+  interactive zero-knowledge proof, that its session keys derive from that recorded handshake and that the bytes it
+  reveals, or commits to as `SHA-256(value ‖ blinder)`, are the decryption of the recorded ciphertext. The verifier
+  checks the server certificate and learns neither the keys nor the private values.
+- **Signed receipts.** This fork's verifier signs what it verified (Ed25519, did:web key): a Merkle root over the
+  revealed bytes and one commit leaf per hidden value.
+- **Noir circuits.** In the browser, circuits prove facts about the hidden values (structure, time window, kind of
+  activity) with the same commitments as public inputs. Their verification keys are pinned by hash.
+- **proof-check** rebuilds the signed root, re-runs the proofs, and requires their commitments to equal the signed
+  leaves, so the facts are tied to the real TLS session.
+- **Attestations and BNB.** A backend can sign an Ed25519 attestation over the provider, claim and proof hash, and
+  anchor it in the BNB Attestation Service ([docs/bnb.md](docs/bnb.md)).
+
+Step by step, with code references and what you have to trust: [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Security model
 
@@ -387,6 +342,8 @@ Censorship resistance, open source, privacy and security. Each point with its co
 
 ## Documentation
 
+- [How it works](docs/how-it-works.md): zkTLS in Proxy mode, the Noir layer, what proof-check ties together
+- [Plug it into your project](docs/integration.md): every step, command and option
 - [Architecture](docs/architecture.md): components, data flow of a private proof, trust model, build
 - [Verification](docs/verification.md): the verify page, checks, verifier keys, hosting
 - [BNB Chain anchoring](docs/bnb.md): publishing attestations to BAS and looking them up
